@@ -1,32 +1,52 @@
 from typing import Optional
-from app.collector.client import fetch_public_api
+from urllib.parse import quote_plus
+import httpx
+import asyncio
+
 from app.core.config import settings
 
-BUSINESS_API_URL = "http://apis.data.go.kr/1543061/petShopSrvc/petShopSrvc"
+BUSINESS_API_URL = "https://apis.data.go.kr/1741000/pet_grooming/info"
+RETRY_DELAYS = [1, 2, 4]
+
+
+def _parse_region(addr: str):
+    parts = addr.split()
+    city = parts[0] if len(parts) > 0 else ""
+    district = parts[1] if len(parts) > 1 else ""
+    return city, district
 
 
 async def fetch_businesses(page: int = 1, num_of_rows: int = 1000) -> dict:
-    params = {
-        "serviceKey": settings.PUBLIC_DATA_API_KEY,
-        "pageNo": page,
-        "numOfRows": num_of_rows,
-        "_type": "json",
-    }
-    return await fetch_public_api(BUSINESS_API_URL, params)
+    key = quote_plus(settings.PUBLIC_DATA_API_KEY)
+    url = f"{BUSINESS_API_URL}?serviceKey={key}&pageNo={page}&numOfRows={num_of_rows}"
+    last_error: Optional[Exception] = None
+    for delay in [0] + RETRY_DELAYS:
+        if delay:
+            await asyncio.sleep(delay)
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            last_error = e
+    raise last_error
 
 
 def parse_business_item(raw: dict) -> dict:
+    addr = raw.get("ROAD_NM_ADDR") or raw.get("LOTNO_ADDR", "")
+    region_city, region_district = _parse_region(addr)
     return {
-        "source_id": raw.get("mgtNo", ""),
+        "source_id": raw.get("MNG_NO", ""),
         "type": "BUSINESS",
-        "name": raw.get("bsnNm", ""),
-        "status": raw.get("bsnStts", ""),
-        "address": raw.get("rdnAdr", ""),
-        "region_city": raw.get("ctpvNm", ""),
-        "region_district": raw.get("signguNm", ""),
-        "phone": raw.get("telNo") or None,
-        "business_type": raw.get("uptaeNm", ""),
-        "registration_no": raw.get("mgtNo") or None,
+        "name": raw.get("BPLC_NM", ""),
+        "status": raw.get("SALS_STTS_NM", ""),
+        "address": addr,
+        "region_city": region_city,
+        "region_district": region_district,
+        "phone": raw.get("TELNO") or None,
+        "business_type": "동물미용업",
+        "registration_no": raw.get("MNG_NO") or None,
     }
 
 

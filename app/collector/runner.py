@@ -97,15 +97,16 @@ async def _collect_source(
 
         log.total_saved = saved
         log.status = "success" if saved == len(items) else "partial"
+        log.finished_at = datetime.utcnow()
         await db.commit()
     except Exception as e:
         await db.rollback()
         log.error_message = str(e)
         log.status = "failed"
+        log.finished_at = datetime.utcnow()
+        db.add(log)
         await db.commit()
 
-    log.finished_at = datetime.utcnow()
-    await db.commit()
     return log
 
 

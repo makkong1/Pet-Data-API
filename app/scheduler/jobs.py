@@ -14,7 +14,7 @@ def start_scheduler():
     scheduler.add_job(
         scheduled_collection,
         trigger="cron",
-        hour=19,
+        hour=2,
         minute=0,
         max_instances=1,
         id="daily_collection",

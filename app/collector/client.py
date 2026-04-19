@@ -1,24 +1,18 @@
 import asyncio
 import httpx
+from typing import Optional
 
-BASE_URL = "http://apis.data.go.kr/1543061/abandonmentPublicSrvc/abandonmentPublic"
 RETRY_DELAYS = [1, 2, 4]
 
 
-async def fetch_abandoned_animals(service_key: str, page: int = 1, num_of_rows: int = 1000) -> dict:
-    params = {
-        "serviceKey": service_key,
-        "pageNo": page,
-        "numOfRows": num_of_rows,
-        "_type": "json",
-    }
-    last_error = None
+async def fetch_public_api(url: str, params: dict, timeout: int = 30) -> dict:
+    last_error: Optional[Exception] = None
     for delay in [0] + RETRY_DELAYS:
         if delay:
             await asyncio.sleep(delay)
         try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.get(BASE_URL, params=params)
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.get(url, params=params)
                 response.raise_for_status()
                 return response.json()
         except Exception as e:

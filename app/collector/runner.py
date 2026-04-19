@@ -76,7 +76,7 @@ async def _collect_source(
     source_name: str,
     fetch_fn,
     extract_fn,
-) -> CollectionLog:
+) -> dict:
     log = CollectionLog(
         source=source_name,
         status="failed",
@@ -107,7 +107,15 @@ async def _collect_source(
         db.add(log)
         await db.commit()
 
-    return log
+    return {
+        "source": log.source,
+        "status": log.status,
+        "total_fetched": log.total_fetched,
+        "total_saved": log.total_saved,
+        "error_message": log.error_message,
+        "started_at": log.started_at,
+        "finished_at": log.finished_at,
+    }
 
 
 async def run_collection(db: AsyncSession) -> list:

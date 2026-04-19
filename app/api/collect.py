@@ -12,16 +12,4 @@ async def trigger_collection(
     db: AsyncSession = Depends(get_db),
     _: None = Depends(require_admin_key),
 ):
-    logs = await run_collection(db)
-    return [
-        {
-            "source": log.source,
-            "status": log.status,
-            "total_fetched": log.total_fetched,
-            "total_saved": log.total_saved,
-            "error_message": log.error_message,
-            "started_at": log.started_at,
-            "finished_at": log.finished_at,
-        }
-        for log in logs
-    ]
+    return await run_collection(db)

@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     API_KEY_HASH: str
     ADMIN_API_KEY_HASH: str
     PUBLIC_DATA_API_KEY: str
+    HOSPITAL_API_KEY: str
 
     model_config = {"env_file": ".env"}
 

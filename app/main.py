@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from app.api.facilities import router as facilities_router
 from app.api.stats import router as stats_router
 from app.api.collect import router as collect_router
+from app.api.trends import router as trends_router
 from app.scheduler.jobs import start_scheduler, stop_scheduler
 
 
@@ -13,7 +14,8 @@ async def lifespan(app: FastAPI):
     stop_scheduler()
 
 
-app = FastAPI(title="Pet Facilities API", lifespan=lifespan)
+app = FastAPI(title="Pet Data API", lifespan=lifespan)
 app.include_router(facilities_router)
 app.include_router(stats_router)
 app.include_router(collect_router)
+app.include_router(trends_router)

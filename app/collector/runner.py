@@ -3,6 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.collector.business import fetch_businesses, extract_businesses
 from app.collector.hospital import fetch_hospitals, extract_hospitals
+from app.collector.geocoder import geocode_address
 from app.collector.naver import collect_category_trends, CATEGORY_KEYWORDS
 from app.analyzer.trend import aggregate_keywords
 from app.cache.redis import save_trend
@@ -71,6 +72,19 @@ async def _upsert_facility(db: AsyncSession, item: dict) -> bool:
                 "specialty": item.get("specialty"),
             },
         )
+    # 좌표 없는 시설 → geocode 시도 (실패해도 무시)
+    coord_check = await db.execute(
+        text("SELECT lat FROM pet_facilities WHERE source_id = :source_id"),
+        {"source_id": item["source_id"]},
+    )
+    if coord_check.scalar_one_or_none() is None:
+        coords = await geocode_address(item.get("address", ""))
+        if coords:
+            lat, lng = coords
+            await db.execute(
+                text("UPDATE pet_facilities SET lat = :lat, lng = :lng WHERE source_id = :source_id"),
+                {"lat": lat, "lng": lng, "source_id": item["source_id"]},
+            )
     return True
 
 

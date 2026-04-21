@@ -1,12 +1,8 @@
-from typing import Optional
 from urllib.parse import quote_plus
-import httpx
-import asyncio
-
 from app.core.config import settings
+from app.collector.client import fetch_public_api
 
 HOSPITAL_API_URL = "https://apis.data.go.kr/1741000/animal_hospitals/info"
-RETRY_DELAYS = [1, 2, 4]
 
 
 def _parse_region(addr: str):
@@ -19,18 +15,7 @@ def _parse_region(addr: str):
 async def fetch_hospitals(page: int = 1, num_of_rows: int = 1000) -> dict:
     key = quote_plus(settings.HOSPITAL_API_KEY)
     url = f"{HOSPITAL_API_URL}?serviceKey={key}&pageNo={page}&numOfRows={num_of_rows}"
-    last_error: Optional[Exception] = None
-    for delay in [0] + RETRY_DELAYS:
-        if delay:
-            await asyncio.sleep(delay)
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                response = await client.get(url)
-                response.raise_for_status()
-                return response.json()
-        except Exception as e:
-            last_error = e
-    raise last_error
+    return await fetch_public_api(url)
 
 
 def parse_hospital_item(raw: dict) -> dict:

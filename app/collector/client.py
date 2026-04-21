@@ -5,7 +5,7 @@ from typing import Optional
 RETRY_DELAYS = [1, 2, 4]
 
 
-async def fetch_public_api(url: str, params: dict, timeout: int = 30) -> dict:
+async def fetch_public_api(url: str, params: Optional[dict] = None, timeout: int = 30) -> dict:
     last_error: Optional[Exception] = None
     for delay in [0] + RETRY_DELAYS:
         if delay:

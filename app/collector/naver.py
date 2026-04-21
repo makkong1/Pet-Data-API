@@ -1,6 +1,6 @@
 import re
-import httpx
 from app.core.config import settings
+from app.collector.client import fetch_public_api
 
 NAVER_BLOG_URL = "https://openapi.naver.com/v1/search/blog.json"
 
@@ -23,10 +23,8 @@ async def search_naver_blog(query: str, display: int = 100) -> list[dict]:
         "X-Naver-Client-Secret": settings.NAVER_CLIENT_SECRET,
     }
     params = {"query": query, "display": display, "sort": "sim"}
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.get(NAVER_BLOG_URL, headers=headers, params=params)
-        response.raise_for_status()
-        items = (await response.json()).get("items", [])
+    data = await fetch_public_api(NAVER_BLOG_URL, params=params, headers=headers, timeout=10)
+    items = data.get("items", [])
     return [
         {"title": _strip_html(i.get("title", "")), "description": _strip_html(i.get("description", ""))}
         for i in items

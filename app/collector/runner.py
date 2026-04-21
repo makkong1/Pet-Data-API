@@ -144,6 +144,6 @@ async def run_trend_collection() -> list[dict]:
             results.append({
                 "category": category,
                 "status": "failed",
-                "error": str(e),
+                "error_message": str(e),
             })
     return results

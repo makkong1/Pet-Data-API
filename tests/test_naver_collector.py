@@ -11,14 +11,7 @@ async def test_search_naver_blog_returns_items():
             {"title": "고양이 간식 후기", "description": "퍼스트메이트 정보"},
         ]
     }
-    with patch("app.collector.naver.httpx.AsyncClient") as mock_client_cls:
-        mock_client = AsyncMock()
-        mock_client_cls.return_value.__aenter__.return_value = mock_client
-        mock_response_obj = AsyncMock()
-        mock_response_obj.json = AsyncMock(return_value=mock_response)
-        mock_response_obj.raise_for_status = AsyncMock()
-        mock_client.get = AsyncMock(return_value=mock_response_obj)
-
+    with patch("app.collector.naver.fetch_public_api", new=AsyncMock(return_value=mock_response)):
         items = await search_naver_blog("강아지 간식 추천")
 
     assert len(items) == 2

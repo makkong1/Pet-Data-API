@@ -4,6 +4,7 @@ from app.api.facilities import router as facilities_router
 from app.api.stats import router as stats_router
 from app.api.collect import router as collect_router
 from app.api.trends import router as trends_router
+from app.api.recommend import router as recommend_router
 from app.scheduler.jobs import start_scheduler, stop_scheduler
 
 
@@ -19,3 +20,4 @@ app.include_router(facilities_router)
 app.include_router(stats_router)
 app.include_router(collect_router)
 app.include_router(trends_router)
+app.include_router(recommend_router)

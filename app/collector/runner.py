@@ -3,6 +3,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.collector.business import fetch_businesses, extract_businesses
 from app.collector.hospital import fetch_hospitals, extract_hospitals
+from app.collector.naver import collect_category_trends, CATEGORY_KEYWORDS
+from app.analyzer.trend import aggregate_keywords
+from app.cache.redis import save_trend
 from app.models.log import CollectionLog
 
 
@@ -123,3 +126,24 @@ async def run_collection(db: AsyncSession) -> list:
     logs.append(await _collect_source(db, "petShop", fetch_businesses, extract_businesses))
     logs.append(await _collect_source(db, "animalHospital", fetch_hospitals, extract_hospitals))
     return logs
+
+
+async def run_trend_collection() -> list[dict]:
+    results = []
+    for category in CATEGORY_KEYWORDS:
+        try:
+            items = await collect_category_trends(category)
+            counts = aggregate_keywords(items)
+            await save_trend(category, dict(counts))
+            results.append({
+                "category": category,
+                "status": "success",
+                "keywords_count": len(counts),
+            })
+        except Exception as e:
+            results.append({
+                "category": category,
+                "status": "failed",
+                "error": str(e),
+            })
+    return results

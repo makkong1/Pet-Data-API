@@ -1,6 +1,6 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.database import AsyncSessionLocal
-from app.collector.runner import run_collection
+from app.collector.runner import run_collection, run_trend_collection
 
 scheduler = AsyncIOScheduler()
 
@@ -8,6 +8,10 @@ scheduler = AsyncIOScheduler()
 async def scheduled_collection():
     async with AsyncSessionLocal() as db:
         await run_collection(db)
+
+
+async def scheduled_trend_collection():
+    await run_trend_collection()
 
 
 def start_scheduler():
@@ -18,6 +22,14 @@ def start_scheduler():
         minute=0,
         max_instances=1,
         id="daily_collection",
+    )
+    scheduler.add_job(
+        scheduled_trend_collection,
+        trigger="cron",
+        hour=3,
+        minute=0,
+        max_instances=1,
+        id="daily_trend_collection",
     )
     scheduler.start()
 

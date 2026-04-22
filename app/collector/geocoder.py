@@ -2,22 +2,25 @@ from typing import Optional
 import httpx
 from app.core.config import settings
 
-KAKAO_GEOCODE_URL = "https://dapi.kakao.com/v2/local/search/address.json"
+NAVER_GEOCODE_URL = "https://naveropenapi.apigw.ntruss.com/map-geocode/v2/geocode"
 
 
 async def geocode_address(address: str) -> Optional[tuple[float, float]]:
     """주소 → (lat, lng). 실패 시 None 반환."""
-    if not settings.KAKAO_REST_API_KEY:
+    if not settings.NAVER_MAP_CLIENT_ID:
         return None
-    headers = {"Authorization": f"KakaoAK {settings.KAKAO_REST_API_KEY}"}
+    headers = {
+        "X-NCP-APIGW-API-KEY-ID": settings.NAVER_MAP_CLIENT_ID,
+        "X-NCP-APIGW-API-KEY": settings.NAVER_MAP_CLIENT_SECRET,
+    }
     params = {"query": address}
     try:
         async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get(KAKAO_GEOCODE_URL, headers=headers, params=params)
+            resp = await client.get(NAVER_GEOCODE_URL, headers=headers, params=params)
             resp.raise_for_status()
-            docs = resp.json().get("documents", [])
-            if docs:
-                return float(docs[0]["y"]), float(docs[0]["x"])  # (lat, lng)
+            addresses = resp.json().get("addresses", [])
+            if addresses:
+                return float(addresses[0]["y"]), float(addresses[0]["x"])  # (lat, lng)
     except Exception:
         pass
     return None

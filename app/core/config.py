@@ -10,7 +10,8 @@ class Settings(BaseSettings):
     NAVER_CLIENT_ID: str
     NAVER_CLIENT_SECRET: str
     REDIS_URL: str = "redis://localhost:6379/0"
-    KAKAO_REST_API_KEY: str = ""
+    NAVER_MAP_CLIENT_ID: str = ""
+    NAVER_MAP_CLIENT_SECRET: str = ""
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3"
 

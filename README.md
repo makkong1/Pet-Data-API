@@ -134,9 +134,30 @@ psql -U postgres -d petdata -f migrations/init.sql
 # 3. 환경변수 설정
 cp .env.example .env  # 값 직접 입력
 
-# 4. 서버 실행 (포트 8000)
-uvicorn app.main:app --reload
+# 4. 서버 실행 (기본 포트 8000, 코드 변경 시 자동 재시작)
+source venv/bin/activate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+### Python 서버만 다시 켤 때
+
+프로젝트 루트에서 가상환경을 켠 뒤 Uvicorn으로 `app.main:app`을 띄웁니다.
+
+```bash
+cd pet-data-api
+source venv/bin/activate          # Windows: venv\Scripts\activate
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+가상환경 활성화 없이 실행하려면:
+
+```bash
+cd pet-data-api
+./venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+- API·Swagger: [http://localhost:8000/docs](http://localhost:8000/docs)
+- `Address already in use`가 나오면 이미 8000 포트를 쓰는 프로세스가 있음 → 기존 터미널에서 서버를 끄거나, `--port 8001` 등으로 바꿔 실행
 
 ### 테스트
 

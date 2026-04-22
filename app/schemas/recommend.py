@@ -21,6 +21,8 @@ class FacilityItem(BaseModel):
     name: str
     distance_m: int
     address: str
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 
 class TrendKeyword(BaseModel):

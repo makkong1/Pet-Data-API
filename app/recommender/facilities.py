@@ -17,6 +17,8 @@ WITH distances AS (
     SELECT
         name,
         address,
+        lat,
+        lng,
         6371000 * acos(
             LEAST(1.0,
                 cos(radians(:lat)) * cos(radians(lat)) *
@@ -28,7 +30,7 @@ WITH distances AS (
     WHERE lat IS NOT NULL
       AND type = :ftype
 )
-SELECT name, address, distance_m
+SELECT name, address, lat, lng, distance_m
 FROM distances
 WHERE distance_m <= :radius_m
 ORDER BY distance_m
@@ -60,6 +62,6 @@ async def get_nearby_facilities(
     )
     rows = result.mappings().all()
     return [
-        {"name": r["name"], "distance_m": int(r["distance_m"]), "address": r["address"]}
+        {"name": r["name"], "distance_m": int(r["distance_m"]), "address": r["address"], "lat": r["lat"], "lng": r["lng"]}
         for r in rows
     ]

@@ -16,20 +16,20 @@ async def scheduled_trend_collection():
 
 def start_scheduler():
     scheduler.add_job(
-        scheduled_collection,
-        trigger="cron",
-        hour=2,
-        minute=0,
-        max_instances=1,
-        id="daily_collection",
-    )
-    scheduler.add_job(
         scheduled_trend_collection,
         trigger="cron",
-        hour=3,
+        hour=18,
         minute=0,
         max_instances=1,
         id="daily_trend_collection",
+    )
+    scheduler.add_job(
+        scheduled_collection,
+        trigger="cron",
+        hour=18,
+        minute=5,
+        max_instances=1,
+        id="daily_collection",
     )
     scheduler.start()
 

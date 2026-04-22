@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,14 @@ from app.recommender.llm import generate_recommendation
 from app.cache.redis import get_trend
 
 router = APIRouter(prefix="/recommend", tags=["recommend"])
+
+_log = logging.getLogger(__name__)
+if not _log.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("[%(name)s] %(message)s"))
+    _log.addHandler(_h)
+    _log.setLevel(logging.INFO)
+    _log.propagate = False
 
 
 @router.post("", response_model=RecommendResponse)
@@ -36,14 +45,19 @@ async def recommend(
     trends = [TrendKeyword(keyword=k, score=int(s)) for k, s in trends_raw]
     facilities = [FacilityItem(**f) for f in facilities_raw]
 
-    pet_dict = req.pet.model_dump() if req.pet else None
-    prompt = build_prompt(req.context, facilities_raw, [t.model_dump() for t in trends], pet_dict)
-    recommendation = await generate_recommendation(prompt)
+    if not facilities_raw:
+        recommendation = None
+    else:
+        pet_dict = req.pet.model_dump() if req.pet else None
+        prompt = build_prompt(req.context, facilities_raw, [t.model_dump() for t in trends], pet_dict)
+        recommendation = await generate_recommendation(prompt)
 
-    return RecommendResponse(
+    response = RecommendResponse(
         context=req.context,
         facilities=facilities,
         trends=trends,
         recommendation=recommendation,
         generated_at=datetime.now(timezone.utc).isoformat(),
     )
+    _log.info("recommend response: %s", response.model_dump_json())
+    return response

@@ -8,6 +8,16 @@ API_KEY = "testkey"
 API_KEY_HASH = hashlib.sha256(API_KEY.encode()).hexdigest()
 HEADERS = {"X-API-Key": API_KEY}
 
+
+@pytest.fixture
+def grooming_legacy_pipe(monkeypatch):
+    """`context=grooming`이어도 레거시 파이프로 고정 (.env의 GROOMING_MVP_ENABLED와 무관)."""
+    monkeypatch.setattr(
+        "app.serving.api.recommend.settings",
+        type("_S", (), {"GROOMING_MVP_ENABLED": False})(),
+    )
+
+
 VALID_PAYLOAD = {
     "lat": 37.5665,
     "lng": 126.9780,
@@ -25,7 +35,7 @@ def patch_api_key(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_recommend_success():
+async def test_recommend_success(grooming_legacy_pipe):
     mock_facilities = [{"name": "해피독", "distance_m": 320, "address": "서울"}]
     mock_trends = [("스포팅컷", 41.0), ("여름컷", 35.0)]
     mock_reco = "말티즈에게는 스포팅컷이 인기입니다."
@@ -45,7 +55,7 @@ async def test_recommend_success():
 
 
 @pytest.mark.asyncio
-async def test_recommend_ollama_down_still_returns_data():
+async def test_recommend_ollama_down_still_returns_data(grooming_legacy_pipe):
     mock_facilities = [{"name": "해피독", "distance_m": 320, "address": "서울"}]
 
     with patch("app.serving.api.recommend.get_nearby_facilities", new=AsyncMock(return_value=mock_facilities)), \
@@ -76,7 +86,7 @@ async def test_recommend_requires_auth():
 
 
 @pytest.mark.asyncio
-async def test_recommend_no_pet():
+async def test_recommend_no_pet(grooming_legacy_pipe):
     payload = {**VALID_PAYLOAD, "pet": None}
     with patch("app.serving.api.recommend.get_nearby_facilities", new=AsyncMock(return_value=[])), \
          patch("app.serving.api.recommend.get_trend", new=AsyncMock(return_value=[])), \

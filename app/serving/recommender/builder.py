@@ -1,4 +1,5 @@
 from typing import Optional, List
+import logging
 
 CONTEXT_LABELS: dict[str, str] = {
     "grooming": "미용실",
@@ -8,6 +9,8 @@ CONTEXT_LABELS: dict[str, str] = {
     "food": "사료",
     "clothes": "의류",
 }
+
+_log = logging.getLogger(__name__)
 
 
 def build_prompt(
@@ -43,16 +46,35 @@ def build_prompt(
     return "\n".join(lines) + "\n\n추천해줘."
 
 
-def build_grooming_copy(facilities: list[dict], trends: list[tuple[str, int]]) -> Optional[str]:
+def build_grooming_copy(
+    facilities: list[dict],
+    trends: list[tuple[str, int]],
+    req_id: Optional[str] = None,
+) -> Optional[str]:
     """그루밍 MVP 규칙 기반 추천 카피 (LLM 없음). §4.2"""
+    rid = req_id or "-"
     if facilities:
         n = len(facilities)
         first = facilities[0]
-        return (
+        text = (
             f"근처 {n}개 애견 미용 시설을 찾았습니다. "
             f"가장 가까운 {first['name']}까지 {first['distance_m']}m입니다."
         )
-    return build_trend_only_copy("grooming", trends) or None
+        _log.info(
+            "grooming_copy [%s] rule facilities=%d first_distance_m=%s",
+            rid,
+            n,
+            first.get("distance_m"),
+        )
+        return text
+    fallback = build_trend_only_copy("grooming", trends) or None
+    _log.info(
+        "grooming_copy [%s] trend_fallback trends=%d out_len=%s",
+        rid,
+        len(trends),
+        len(fallback) if fallback else 0,
+    )
+    return fallback
 
 
 def build_trend_only_copy(context: str, trends: list[tuple[str, int]]) -> str:

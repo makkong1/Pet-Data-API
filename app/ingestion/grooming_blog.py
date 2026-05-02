@@ -1,4 +1,6 @@
 import re
+import logging
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -22,6 +24,8 @@ _BLOCKLIST = frozenset([
 
 _CANDIDATE_CAP = 20  # §2.2 후보 상한 (Kakao 단계 진입 전)
 _FRESHNESS_WINDOW_DAYS = 180  # freshness_weight 적용 기간
+
+_log = logging.getLogger(__name__)
 
 
 def _extract_candidates_from_text(text: str) -> set[str]:
@@ -67,6 +71,7 @@ def _parse_freshness(postdate: Optional[str]) -> float:
 
 async def extract_grooming_mentions(
     timeout_s: Optional[float] = None,
+    req_id: Optional[str] = None,
 ) -> tuple[dict[str, dict], list[str]]:
     """
     그루밍 블로그 검색 → 상호명 멘션 집계.
@@ -78,10 +83,22 @@ async def extract_grooming_mentions(
     if timeout_s is None:
         timeout_s = settings.NAVER_TIMEOUT_MS / 1000
 
+    rid = req_id or "-"
+    t0 = time.monotonic()
+    _log.info(
+        "grooming_blog [%s] start queries=%d cap=%d timeout_s=%s",
+        rid,
+        len(_GROOMING_QUERIES),
+        _CANDIDATE_CAP,
+        timeout_s,
+    )
+
     aggregator: dict[str, dict] = {}
+    blog_item_total = 0
 
     for query in _GROOMING_QUERIES:
         items = await search_naver_blog(query, display=100)
+        blog_item_total += len(items)
         for item in items:
             text = (item.get("title", "") + " " + item.get("description", "")).strip()
             post_id = item.get("link", text[:50])
@@ -107,5 +124,16 @@ async def extract_grooming_mentions(
         count = entry["count"]
         freshness = round(entry["freshness_sum"] / count, 4) if count > 0 else 0.0
         mention_map[name] = {"count": count, "freshness": freshness}
+
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    _log.info(
+        "grooming_blog [%s] done blog_items=%d unique_before_cap=%d mention_map=%d top_names=%d elapsed_ms=%d",
+        rid,
+        blog_item_total,
+        len(aggregator),
+        len(mention_map),
+        len(top_names),
+        elapsed_ms,
+    )
 
     return mention_map, top_names

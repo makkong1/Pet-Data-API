@@ -1,6 +1,8 @@
 import asyncio
 import json
+import logging
 import re
+import time
 from typing import Optional
 import httpx
 
@@ -12,6 +14,7 @@ _KAKAO_PLACE_TTL = 600  # §2.2.1
 _CANDIDATE_CAP = 20     # §2.2
 _SEMAPHORE = asyncio.Semaphore(5)  # §2.2 동시성 제한
 
+_log = logging.getLogger(__name__)
 
 def _normalize_name(name: str) -> str:
     """캐시 키용 정규화: 공백·특수문자 제거, 소문자."""
@@ -73,6 +76,7 @@ async def search_kakao_places(
     candidate_names: list[str],
     user_lat: float,
     user_lng: float,
+    req_id: Optional[str] = None,
 ) -> dict[str, list[dict]]:
     """
     상호명 후보 목록 → {원본 이름: [Kakao 장소 후보]} 반환.
@@ -80,25 +84,58 @@ async def search_kakao_places(
     - 캐시 HIT 시 HTTP 호출 생략.
     - settings.KAKAO_REST_API_KEY 없으면 빈 dict 반환.
     """
+    rid = req_id or "-"
+    t0 = time.monotonic()
+
     if not settings.KAKAO_REST_API_KEY:
+        _log.warning("kakao_place [%s] skip empty KAKAO_REST_API_KEY", rid)
         return {}
 
     names = candidate_names[:_CANDIDATE_CAP]
     result: dict[str, list[dict]] = {}
+    stats = {"cache_hit": 0, "cache_miss": 0, "http_ok": 0, "http_err": 0}
 
     async def _fetch_one(name: str) -> None:
         key = _cache_key(name, user_lat, user_lng)
         cached = await _get_cached(key)
         if cached is not None:
             result[name] = cached
+            stats["cache_hit"] += 1
             return
+        stats["cache_miss"] += 1
         try:
             places = await _call_kakao(name, user_lat, user_lng)
+            stats["http_ok"] += 1
         except Exception:
+            stats["http_err"] += 1
             result[name] = []
             return
         await _set_cached(key, places)
         result[name] = places
 
+    _log.info(
+        "kakao_place [%s] start candidates_in=%d after_cap=%d lat=%.4f lng=%.4f",
+        rid,
+        len(candidate_names),
+        len(names),
+        user_lat,
+        user_lng,
+    )
+
     await asyncio.gather(*[_fetch_one(n) for n in names])
+
+    places_nonzero = sum(1 for v in result.values() if v)
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    _log.info(
+        "kakao_place [%s] done keys=%d nonempty=%d cache_hit=%d cache_miss=%d http_ok=%d http_err=%d elapsed_ms=%d",
+        rid,
+        len(result),
+        places_nonzero,
+        stats["cache_hit"],
+        stats["cache_miss"],
+        stats["http_ok"],
+        stats["http_err"],
+        elapsed_ms,
+    )
+
     return result

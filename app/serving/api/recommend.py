@@ -2,6 +2,7 @@
 
 import logging
 import time
+import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -76,20 +77,36 @@ async def recommend(
         # ── 그루밍 MVP 파이프 (§1.1) ──
         recommend_version = "grooming-mvp-v1"
         radius_m = req.radius_km * 1000
-        t0 = time.monotonic()
+        t_full = time.monotonic()
+        req_id = uuid.uuid4().hex[:10]
+        _log.info(
+            "grooming_pipe [%s] start context=grooming lat=%.5f lng=%.5f radius_km=%s top_n=%s",
+            req_id,
+            req.lat,
+            req.lng,
+            req.radius_km,
+            req.top_n,
+        )
 
         # 공공 DB 반경 목록 (source_id 포함, 여유있게 4배 조회 후 랭커에서 top_n으로 자름)
+        t_db = time.monotonic()
         public_raw = await get_nearby_facilities(
             db, req.lat, req.lng, normalized_context, req.radius_km, req.top_n * 4
+        )
+        _log.info(
+            "grooming_pipe [%s] public_db count=%d elapsed_ms=%d",
+            req_id,
+            len(public_raw),
+            int((time.monotonic() - t_db) * 1000),
         )
 
         # 블로그 멘션 추출 (실패 시 폴백: mention 없음)
         t_blog = time.monotonic()
         try:
-            mention_map, candidate_names = await extract_grooming_mentions()
+            mention_map, candidate_names = await extract_grooming_mentions(req_id=req_id)
         except Exception:
             mention_map, candidate_names = {}, []
-            _log.warning("grooming_blog_failed: blog fallback to empty mention")
+            _log.warning("grooming_pipe [%s] grooming_blog_failed: fallback empty mention", req_id)
         blog_ms = int((time.monotonic() - t_blog) * 1000)
 
         candidate_count_raw = len(mention_map)
@@ -98,30 +115,50 @@ async def recommend(
         # Kakao 장소 검색 (실패 시 폴백: 공공만)
         t_kakao = time.monotonic()
         try:
-            kakao_map = await search_kakao_places(candidate_names, req.lat, req.lng)
+            kakao_map = await search_kakao_places(candidate_names, req.lat, req.lng, req_id=req_id)
         except Exception:
             kakao_map = {}
-            _log.warning("kakao_search_failed: kakao fallback to empty")
+            _log.warning("grooming_pipe [%s] kakao_search_failed: fallback empty", req_id)
         kakao_ms = int((time.monotonic() - t_kakao) * 1000)
         kakao_call_count = len(kakao_map)
 
         # 랭킹 & dedupe
         t_rank = time.monotonic()
         facilities_raw = rank_grooming_facilities(
-            public_raw, kakao_map, mention_map, req.lat, req.lng, radius_m, req.top_n
+            public_raw,
+            kakao_map,
+            mention_map,
+            req.lat,
+            req.lng,
+            radius_m,
+            req.top_n,
+            req_id=req_id,
         )
         rank_ms = int((time.monotonic() - t_rank) * 1000)
-        total_ms = int((time.monotonic() - t0) * 1000)
+        total_ms = int((time.monotonic() - t_full) * 1000)
 
         _log.info(
-            "grooming_pipe candidate_count_raw=%d after_cap=%d after_match=%d "
-            "kakao_calls=%d latency_total=%dms blog=%dms kakao=%dms rank=%dms",
-            candidate_count_raw, candidate_count_after_cap, len(facilities_raw),
-            kakao_call_count, total_ms, blog_ms, kakao_ms, rank_ms,
+            "grooming_pipe [%s] summary candidate_raw=%d after_cap=%d returned=%d "
+            "kakao_keys=%d latency_total=%dms blog=%dms kakao=%dms rank=%dms",
+            req_id,
+            candidate_count_raw,
+            candidate_count_after_cap,
+            len(facilities_raw),
+            kakao_call_count,
+            total_ms,
+            blog_ms,
+            kakao_ms,
+            rank_ms,
         )
 
         facilities = [FacilityItem(**{k: v for k, v in f.items()}) for f in facilities_raw]
-        recommendation = build_grooming_copy(facilities_raw, trends_raw)
+        recommendation = build_grooming_copy(facilities_raw, trends_raw, req_id=req_id)
+        _log.info(
+            "grooming_pipe [%s] response facilities=%d recommend_len=%s",
+            req_id,
+            len(facilities),
+            len(recommendation) if recommendation else 0,
+        )
 
     else:
         # ── 레거시 파이프 (비그루밍 또는 플래그 off) ──

@@ -13,7 +13,18 @@ from app.platform.models.log import CollectionLog
 
 
 async def _upsert_facility(db: AsyncSession, item: dict) -> bool:
-    if not item.get("source_id") or not item.get("name"):
+    if not item.get("source_id"):
+        return False
+
+    # 공공 API 폐업 건은 적재하지 않음. 기존 행이 있으면 제거(CASCADE로 상세 테이블 정리).
+    if item.get("status") == "폐업":
+        await db.execute(
+            text("DELETE FROM pet_facilities WHERE source_id = :source_id"),
+            {"source_id": item["source_id"]},
+        )
+        return False
+
+    if not item.get("name"):
         return False
 
     facility_type = item["type"]

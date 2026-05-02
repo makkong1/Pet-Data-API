@@ -1,3 +1,4 @@
+import logging
 import math
 import re
 from typing import Optional
@@ -11,6 +12,8 @@ _SIMILARITY_THRESHOLD = 85  # RapidFuzz ratio 기준
 _W_DISTANCE = 0.5
 _W_MENTION = 0.3
 _W_FRESHNESS = 0.2
+
+_log = logging.getLogger(__name__)
 
 
 def _normalize_for_match(name: str) -> str:
@@ -46,6 +49,7 @@ def rank_grooming_facilities(
     user_lng: float,
     radius_m: float,
     top_n: int,
+    req_id: Optional[str] = None,
 ) -> list[dict]:
     """
     공공 DB + Kakao POI → 랭킹·병합·dedupe → top_n 개 반환.
@@ -58,6 +62,16 @@ def rank_grooming_facilities(
         radius_m: 반경 (미터).
         top_n: 최종 반환 수 상한.
     """
+    rid = req_id or "-"
+    _log.info(
+        "grooming_ranker [%s] start public=%d kakao_keys=%d mention=%d radius_m=%.0f top_n=%d",
+        rid,
+        len(public_facilities),
+        len(kakao_map),
+        len(mention_map),
+        radius_m,
+        top_n,
+    )
     # ── 1. 공공 시설 목록 (이미 반경 필터 완료, distance_m 있음)
     candidates: list[dict] = []
 
@@ -127,6 +141,8 @@ def rank_grooming_facilities(
                 }
                 candidates.append(entry)
 
+    _log.info("grooming_ranker [%s] after_merge candidates=%d", rid, len(candidates))
+
     # ── 3. 중복 제거: 정규화 이름 기준
     deduped: list[dict] = []
     seen_norms: set[str] = set()
@@ -136,6 +152,19 @@ def rank_grooming_facilities(
             continue
         seen_norms.add(norm)
         deduped.append(c)
+
+    by_source = {"public": 0, "public+kakao": 0, "kakao": 0}
+    for c in deduped:
+        src = c.get("source", "")
+        if src in by_source:
+            by_source[src] += 1
+
+    _log.info(
+        "grooming_ranker [%s] after_dedupe count=%d by_source=%s",
+        rid,
+        len(deduped),
+        by_source,
+    )
 
     # ── 4. 정렬 §2.3 (거리↑ → 공공매칭 있는 것↑ → mention_count↓ → source_id/name↑)
     deduped.sort(key=lambda c: (
@@ -170,5 +199,17 @@ def rank_grooming_facilities(
             "mention_score": round(mention_score, 4),
             "score": round(score, 4),
         })
+
+    out_sources = {"public": 0, "public+kakao": 0, "kakao": 0}
+    for row in result:
+        s = row.get("source", "")
+        if s in out_sources:
+            out_sources[s] += 1
+    _log.info(
+        "grooming_ranker [%s] result top=%d by_source=%s",
+        rid,
+        len(result),
+        out_sources,
+    )
 
     return result

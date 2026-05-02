@@ -31,7 +31,7 @@
 | 장소 보강 | Kakao Local API — **키워드 검색으로 상호 후보 → 주소·좌표** (기존 지오코딩 API와 엔드포인트 다를 수 있음) |
 | LLM       | **후보·점수는 규칙 기반**; LLM은 선택적으로 **상위 N개 “추천 이유” 요약**만                               |
 
-**비목표 (MVP):** `hospital` / `supplies` 동일 로직 일괄 적용, **외부 API(블로그·Kakao) 원문·전체 응답을 영구 DB에 적재**하는 것.
+**비목표 (MVP):** `hospital` / `supplies`에 **지금 이 MR/스프린트에서** 동일 로직 일괄 적용, **외부 API(블로그·Kakao) 원문·전체 응답을 영구 DB에 적재**하는 것.
 
 ### 1.1 Feature flag (신규 파이프 on/off)
 
@@ -40,6 +40,12 @@
 | `GROOMING_MVP_ENABLED` | `false` | `true`일 때만 `context=grooming`에 §2 이후 **블로그·Kakao·랭킹 확장 파이프** 적용. `false`이면 그루밍도 **현행 `/recommend`와 동일**(§2.6 “비그루밍 유지”와 대칭으로 회귀 방지). |
 
 구현은 `app.platform.core.config.Settings`(또는 동등)에 올리고 `.env.example`에 한 줄 주석으로 명시한다.
+
+### 1.2 이후 확장 (의도)
+
+- **그루밍만 먼저**는 검증·테스트 겸 **첫 카테고리**일 뿐이다.
+- 안정화·테스트 통과 후에는 **같은 패턴**(블로그 멘션 → Kakao 보강 → 공공와 랭킹)을 **카테고리별 쿼리·룰·플래그**로 나눠 `hospital` 등에 순차 적용하면 된다.
+- 코드상으로는 현재 `GROOMING_MVP_ENABLED` + `context=grooming`만 연결돼 있고, 타 카테고리는 **아직 레거시**인 것이 정상이다.
 
 ---
 
@@ -253,6 +259,20 @@ LLM은 타임아웃·서킷 브레이커를 두고 SLA에서 분리 측정한다
 | `latency_ms`                  | 단계별 또는 전체 (예: `total`, `blog`, `kakao`, `rank`)                |
 
 원문·전체 JSON 대신 **카운터·밀리초**로 운영 가능성을 확보한다.
+
+### 4.4 요청 단위 추적 로그 (그루밍 MVP)
+
+한 번의 `POST /recommend`(그루밍·플래그 on)마다 **`[req_id]`**(짧은 hex)로 같은 요청의 단계를 묶을 수 있다. 로거/메시지 접두:
+
+| 접두 | 모듈 | 내용 |
+|------|------|------|
+| `grooming_pipe` | `app.serving.api.recommend` | 시작·공공 DB 건수·단계별 ms·요약·응답 크기 |
+| `grooming_blog` | `app.ingestion.grooming_blog` | 네이버 블로그 스텝 시작/종료(아이템 수·유니크 후보·소요 ms) |
+| `kakao_place` | `app.ingestion.kakao` | 후보 수·**cache_hit / cache_miss / http_ok / http_err**·소요 ms |
+| `grooming_ranker` | `app.serving.recommender.grooming_ranker` | 병합 후 후보 수·dedupe 후·출력 `source` 분포 |
+| `grooming_copy` | `app.serving.recommender.builder` | 규칙 문구 vs 트렌드 폴백 |
+
+원문 스니펫·전체 페이로드는 로그에 넣지 않는다 (§2.7).
 
 ---
 

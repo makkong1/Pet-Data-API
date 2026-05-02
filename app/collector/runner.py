@@ -1,8 +1,8 @@
 from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.collector.business import fetch_businesses, extract_businesses
-from app.collector.hospital import fetch_hospitals, extract_hospitals
+from app.collector.business import fetch_all_businesses
+from app.collector.hospital import fetch_all_hospitals
 from app.collector.geocoder import geocode_address
 from app.collector.naver import collect_category_trends, CATEGORY_KEYWORDS
 from app.analyzer.trend import aggregate_keywords
@@ -91,8 +91,7 @@ async def _upsert_facility(db: AsyncSession, item: dict) -> bool:
 async def _collect_source(
     db: AsyncSession,
     source_name: str,
-    fetch_fn,
-    extract_fn,
+    collect_fn,
 ) -> dict:
     log = CollectionLog(
         source=source_name,
@@ -103,8 +102,7 @@ async def _collect_source(
     await db.flush()
 
     try:
-        response = await fetch_fn()
-        items = extract_fn(response)
+        items = await collect_fn()
         log.total_fetched = len(items)
 
         saved = 0
@@ -137,8 +135,8 @@ async def _collect_source(
 
 async def run_collection(db: AsyncSession) -> list:
     logs = []
-    logs.append(await _collect_source(db, "petShop", fetch_businesses, extract_businesses))
-    logs.append(await _collect_source(db, "animalHospital", fetch_hospitals, extract_hospitals))
+    logs.append(await _collect_source(db, "petShop", fetch_all_businesses))
+    logs.append(await _collect_source(db, "animalHospital", fetch_all_hospitals))
     return logs
 
 

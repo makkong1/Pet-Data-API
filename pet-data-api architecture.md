@@ -85,7 +85,7 @@ Java/Spring 기반 [Petory](https://github.com/makkong1/Petory)에서 **`POST /r
 `LIKE '%검색어%'` 대신 GIN 인덱스 + `%` 유사도 연산자. 한국어 자모 trigram 인덱싱으로 오타·부분 일치 지원.
 
 ### Redis Sorted Set 트렌드 캐싱
-`ZADD` 로 키워드 빈도 적재, `ZRANGE ... WITHSCORES` 로 상위 N개 조회. 매일 18:00에 갱신.
+`ZADD` 로 키워드 빈도 적재, `ZRANGE ... WITHSCORES` 로 상위 N개 조회. 매일 03:00에 갱신.
 
 ### kiwipiepy 형태소 분석
 KoNLPy 대신 kiwipiepy. Java 런타임 불필요, NNG(일반명사)·NNP(고유명사)만 추출하고 불용어(추천, 후기 등)를 필터링.
@@ -355,4 +355,3 @@ pet-data-api/
 - [`docs/USAGE.md`](docs/USAGE.md) — 실제 `curl` 예시 포함 사용 가이드
 - [`docs/superpowers/specs/2026-04-21-pet-recommendation-pipeline-design.md`](docs/superpowers/specs/2026-04-21-pet-recommendation-pipeline-design.md) — 추천 파이프라인 설계
 - [`docs/superpowers/specs/2026-04-21-pet-trend-pipeline-design.md`](docs/superpowers/specs/2026-04-21-pet-trend-pipeline-design.md) — 트렌드 파이프라인 설계
-- [`docs/superpowers/specs/2026-05-01-petory-category-recommendation-redesign.md`](docs/superpowers/specs/2026-05-01-petory-category-recommendation-redesign.md) — 카테고리 클릭형 추천 재설계안

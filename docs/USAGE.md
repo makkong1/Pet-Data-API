@@ -6,7 +6,7 @@
 
 - **FastAPI**로 **반려동물 관련 시설** 데이터를 PostgreSQL에 저장하고, **네이버 블로그 기반 트렌드 키워드**를 Redis에 캐시하며, **API Key**로 보호된 REST API로 조회·통계·트렌드·수집을 제공합니다.
 - **data.go.kr** 공공 API 키(`PUBLIC_DATA_API_KEY`, 병원용 `HOSPITAL_API_KEY`)로 **반려동물 영업장**·**동물병원** 데이터를 가져와 `pet_facilities` 등에 **upsert**합니다.
-- **APScheduler**: 로컬 시각 **매일 02:00**에 공공데이터 수집(`max_instances=1`), **매일 03:00**에 네이버 블로그 → 형태소 분석 → Redis 트렌드 갱신.
+- **APScheduler**: 로컬 시각 **매일 18:00**에 네이버 블로그 → 형태소 분석 → Redis 트렌드 갱신(`max_instances=1`), **매일 18:05**에 공공데이터 수집.
 
 ## 사전 요구 사항
 
@@ -130,8 +130,8 @@ curl -s -X POST -H "X-API-Key: $ADMIN_KEY" \
 
 ## 자동 수집 스케줄
 
-- **매일 02:00**: 공공데이터 수집(`daily_collection`).
-- **매일 03:00**: 네이버 블로그 트렌드 수집·Redis 갱신(`daily_trend_collection`).
+- **매일 18:00**: 네이버 블로그 트렌드 수집·Redis 갱신(`daily_trend_collection`).
+- **매일 18:05**: 공공데이터 수집(`daily_collection`).
 - 모두 `app/scheduler/jobs.py`에서 `max_instances=1`.
 - 별도 타임존 설정이 없으면 **프로세스가 돌아가는 머신의 로컬 시간** 기준입니다. 서버 배포 시 운영체제/ZONE 설정을 맞추세요.
 

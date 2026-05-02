@@ -67,6 +67,7 @@ Java/Spring 기반 [Petory](https://github.com/makkong1/Petory)에서 **`POST /r
 ```
 
 **상세 흐름(배치 수집 vs 읽기 전용 API, Mermaid 다이어그램)** → [`docs/DATA-AND-API-FLOW.md`](docs/DATA-AND-API-FLOW.md)  
+**아키텍처 상세 문서(컴포넌트/런타임/폴백/확장 가이드)** → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)  
 **수집 코드 vs 서빙 코드 폴더 맵** → [`docs/INGESTION-VS-SERVING.md`](docs/INGESTION-VS-SERVING.md)
 
 ---

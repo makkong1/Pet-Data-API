@@ -15,7 +15,14 @@ async def lifespan(app: FastAPI):
     stop_scheduler()
 
 
-app = FastAPI(title="Pet Data API", lifespan=lifespan)
+app = FastAPI(
+    title="반려동물 시설·트렌드 API (Pet Data API)",
+    description=(
+        "행안부 공공데이터 시설, 블로그 트렌드(Redis), 위치 기반 추천 "
+        "(Government pet facility data, blog trends, location-based recommendations)"
+    ),
+    lifespan=lifespan,
+)
 app.include_router(facilities_router)
 app.include_router(stats_router)
 app.include_router(collect_router)

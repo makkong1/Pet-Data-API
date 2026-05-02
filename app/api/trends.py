@@ -1,18 +1,22 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from redis.exceptions import RedisError
 from app.cache.redis import get_trend, get_updated_at
 from app.core.auth import require_api_key
 from app.collector.naver import CATEGORY_KEYWORDS
 
-router = APIRouter(prefix="/trends", tags=["trends"])
+router = APIRouter(prefix="/trends", tags=["트렌드 (Trends)"])
 
 VALID_CATEGORIES = set(CATEGORY_KEYWORDS.keys())
 
 
-@router.get("/{category}")
+@router.get(
+    "/{category}",
+    summary="카테고리별 트렌드 (Trends by category)",
+    description="Redis에 캐시된 키워드 순위. (Keyword rankings from Redis cache.)",
+)
 async def get_trends(
-    category: str,
-    limit: int = Query(20, ge=1, le=50),
+    category: str = Path(..., description="트렌드 카테고리 (Registered trend category)"),
+    limit: int = Query(20, ge=1, le=50, description="키워드 개수 상한 (Max keywords)"),
     _: None = Depends(require_api_key),
 ):
     if category not in VALID_CATEGORIES:

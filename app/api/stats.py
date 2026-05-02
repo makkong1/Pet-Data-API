@@ -6,10 +6,15 @@ from app.core.database import get_db
 from app.core.auth import require_api_key
 from app.schemas.stats import SummaryResponse
 
-router = APIRouter(prefix="/stats", tags=["stats"])
+router = APIRouter(prefix="/stats", tags=["통계 (Stats)"])
 
 
-@router.get("/summary", response_model=List[SummaryResponse])
+@router.get(
+    "/summary",
+    response_model=List[SummaryResponse],
+    summary="요약 통계 (Summary stats)",
+    description="영업 중 시설만 지역·유형별 집계. (Open facilities only, grouped by region and type.)",
+)
 async def summary_stats(
     db: AsyncSession = Depends(get_db),
     _: None = Depends(require_api_key),

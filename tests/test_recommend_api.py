@@ -124,8 +124,11 @@ async def test_recommend_supplies_legacy_context_uses_trend_only():
 # ────────── 그루밍 MVP 회귀 테스트 (§3.1) ──────────
 
 @pytest.mark.asyncio
-async def test_hospital_context_uses_legacy_pipe():
-    """hospital 컨텍스트는 항상 레거시 파이프 → recommend_version='legacy'."""
+async def test_hospital_context_uses_legacy_pipe(monkeypatch):
+    """확장 플래그 off면 hospital도 레거시 파이프."""
+    monkeypatch.setattr("app.serving.api.recommend.settings", type("S", (), {
+        "GROOMING_MVP_ENABLED": False
+    })())
     payload = {**VALID_PAYLOAD, "context": "hospital"}
     mock_facilities = [{"source_id": "H001", "name": "행복동물병원", "distance_m": 500, "address": "서울", "lat": 37.5, "lng": 126.9}]
 
@@ -190,6 +193,61 @@ async def test_grooming_flag_on_uses_mvp_pipe(monkeypatch):
     assert 0.0 <= fac["score"] <= 1.0
     assert 0.0 <= fac["mention_score"] <= 1.0
     assert data["recommendation"] is not None
+
+
+@pytest.mark.asyncio
+async def test_hospital_flag_on_uses_mvp_pipe(monkeypatch):
+    """GROOMING_MVP_ENABLED=true + context=hospital → hospital-mvp-v1."""
+    monkeypatch.setattr("app.serving.api.recommend.settings", type("S", (), {
+        "GROOMING_MVP_ENABLED": True
+    })())
+
+    payload = {**VALID_PAYLOAD, "context": "hospital"}
+    mock_public = [{"source_id": "H001", "name": "행복동물병원", "address": "서울", "lat": 37.5665, "lng": 126.979, "distance_m": 120}]
+    mock_mention_map = {"행복동물병원": {"count": 2, "freshness": 0.6}}
+
+    with patch("app.serving.api.recommend.get_nearby_facilities", new=AsyncMock(return_value=mock_public)), \
+         patch("app.serving.api.recommend.get_trend", new=AsyncMock(return_value=[])), \
+         patch("app.serving.api.recommend.extract_context_mentions",
+               new=AsyncMock(return_value=(mock_mention_map, list(mock_mention_map.keys())))), \
+         patch("app.serving.api.recommend.search_kakao_places", new=AsyncMock(return_value={})):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.post("/recommend", json=payload, headers=HEADERS)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["recommend_version"] == "hospital-mvp-v1"
+    assert data["facilities"][0]["mention_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_snack_flag_on_maps_to_supplies_mvp_pipe(monkeypatch):
+    """GROOMING_MVP_ENABLED=true + context=snack → supplies-mvp-v1."""
+    monkeypatch.setattr("app.serving.api.recommend.settings", type("S", (), {
+        "GROOMING_MVP_ENABLED": True
+    })())
+
+    payload = {**VALID_PAYLOAD, "context": "snack"}
+    mock_public = [{"source_id": "S001", "name": "펫마트", "address": "서울", "lat": 37.5665, "lng": 126.979, "distance_m": 180}]
+    mock_mention_map = {"펫마트": {"count": 4, "freshness": 0.7}}
+
+    with patch("app.serving.api.recommend.get_nearby_facilities", new=AsyncMock(return_value=mock_public)), \
+         patch("app.serving.api.recommend.get_trend", new=AsyncMock(side_effect=[
+             [("용품점", 10.0)],
+             [("간식", 7.0)],
+             [("사료", 5.0)],
+             [("의류", 1.0)],
+         ])), \
+         patch("app.serving.api.recommend.extract_context_mentions",
+               new=AsyncMock(return_value=(mock_mention_map, list(mock_mention_map.keys())))), \
+         patch("app.serving.api.recommend.search_kakao_places", new=AsyncMock(return_value={})):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.post("/recommend", json=payload, headers=HEADERS)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["recommend_version"] == "supplies-mvp-v1"
+    assert data["facilities"][0]["mention_count"] == 4
 
 
 @pytest.mark.asyncio

@@ -5,6 +5,11 @@ def test_build_query_appends_grooming_hint():
     assert _build_query("멍멍샵") == "멍멍샵 애견미용"
 
 
+def test_build_query_uses_context_specific_hint():
+    assert _build_query("튼튼", context="hospital") == "튼튼 동물병원"
+    assert _build_query("몽글", context="food") == "몽글 반려동물용품"
+
+
 def test_is_pet_related_doc_true():
     doc = {
         "place_name": "멍멍샵",

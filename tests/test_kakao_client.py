@@ -25,7 +25,7 @@ def test_cache_key_format():
     # 한글은 정규화 후에도 유지, 공백·특수문자만 제거
     assert "해피독" in key
     parts = key.split(":")
-    assert len(parts) == 5
+    assert len(parts) == 6
 
 
 @pytest.mark.asyncio
@@ -57,7 +57,7 @@ async def test_search_caps_at_20_candidates():
     names = [f"미용실{i}" for i in range(30)]
     called_names = []
 
-    async def fake_call(name, lat, lng):
+    async def fake_call(name, lat, lng, context="grooming"):
         called_names.append(name)
         return []
 

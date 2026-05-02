@@ -39,7 +39,10 @@ class TrendKeyword(BaseModel):
 
 class RecommendResponse(BaseModel):
     context: str = Field(..., description="요청 맥락 (Requested context)")
-    recommend_version: str = Field("legacy", description="응답 파이프 버전 (grooming-mvp-v1 | legacy)")
+    recommend_version: str = Field(
+        "legacy",
+        description="응답 파이프 버전 (legacy | grooming-mvp-v1 | hospital-mvp-v1 | supplies-mvp-v1)",
+    )
     facilities: List[FacilityItem] = Field(..., description="추천 시설 (Facilities)")
     trends: List[TrendKeyword] = Field(..., description="관련 트렌드 (Trend keywords)")
     recommendation: Optional[str] = Field(None, description="LLM 추천 문구 (LLM recommendation text)")

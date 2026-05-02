@@ -12,14 +12,15 @@ from app.platform.core.database import get_db
 from app.platform.core.auth import require_api_key
 from app.platform.schemas.recommend import RecommendRequest, RecommendResponse, FacilityItem, TrendKeyword
 from app.serving.recommender.facilities import get_nearby_facilities, VALID_CONTEXTS, normalize_context
-from app.serving.recommender.builder import build_prompt, build_trend_only_copy, build_grooming_copy
+from app.serving.recommender.builder import build_prompt, build_trend_only_copy, build_context_copy
 from app.serving.recommender.llm import generate_recommendation
 from app.platform.cache.redis import get_trend
-from app.ingestion.grooming_blog import extract_grooming_mentions
+from app.ingestion.grooming_blog import extract_grooming_mentions, extract_context_mentions
 from app.ingestion.kakao import search_kakao_places
 from app.serving.recommender.grooming_ranker import rank_grooming_facilities
 
 router = APIRouter(prefix="/recommend", tags=["추천 (Recommend)"])
+ENRICHED_CONTEXTS = {"grooming", "hospital", "supplies"}
 
 _log = logging.getLogger(__name__)
 if not _log.handlers:
@@ -73,15 +74,16 @@ async def recommend(
 
     recommend_version = "legacy"
 
-    if req.context == "grooming" and settings.GROOMING_MVP_ENABLED:
-        # ── 그루밍 MVP 파이프 (§1.1) ──
-        recommend_version = "grooming-mvp-v1"
+    if normalized_context in ENRICHED_CONTEXTS and settings.GROOMING_MVP_ENABLED:
+        # ── 컨텍스트 확장 파이프 (네이버 멘션 + Kakao POI) ──
+        recommend_version = f"{normalized_context}-mvp-v1"
         radius_m = req.radius_km * 1000
         t_full = time.monotonic()
         req_id = uuid.uuid4().hex[:10]
         _log.info(
-            "grooming_pipe [%s] start context=grooming lat=%.5f lng=%.5f radius_km=%s top_n=%s",
+            "context_pipe [%s] start context=%s lat=%.5f lng=%.5f radius_km=%s top_n=%s",
             req_id,
+            normalized_context,
             req.lat,
             req.lng,
             req.radius_km,
@@ -94,8 +96,9 @@ async def recommend(
             db, req.lat, req.lng, normalized_context, req.radius_km, req.top_n * 4
         )
         _log.info(
-            "grooming_pipe [%s] public_db count=%d elapsed_ms=%d",
+            "context_pipe [%s] public_db context=%s count=%d elapsed_ms=%d",
             req_id,
+            normalized_context,
             len(public_raw),
             int((time.monotonic() - t_db) * 1000),
         )
@@ -103,10 +106,20 @@ async def recommend(
         # 블로그 멘션 추출 (실패 시 폴백: mention 없음)
         t_blog = time.monotonic()
         try:
-            mention_map, candidate_names = await extract_grooming_mentions(req_id=req_id)
+            if normalized_context == "grooming":
+                mention_map, candidate_names = await extract_grooming_mentions(req_id=req_id)
+            else:
+                mention_map, candidate_names = await extract_context_mentions(
+                    normalized_context,
+                    req_id=req_id,
+                )
         except Exception:
             mention_map, candidate_names = {}, []
-            _log.warning("grooming_pipe [%s] grooming_blog_failed: fallback empty mention", req_id)
+            _log.warning(
+                "context_pipe [%s] context_blog_failed context=%s fallback empty mention",
+                req_id,
+                normalized_context,
+            )
         blog_ms = int((time.monotonic() - t_blog) * 1000)
 
         candidate_count_raw = len(mention_map)
@@ -115,10 +128,20 @@ async def recommend(
         # Kakao 장소 검색 (실패 시 폴백: 공공만)
         t_kakao = time.monotonic()
         try:
-            kakao_map = await search_kakao_places(candidate_names, req.lat, req.lng, req_id=req_id)
+            kakao_map = await search_kakao_places(
+                candidate_names,
+                req.lat,
+                req.lng,
+                context=normalized_context,
+                req_id=req_id,
+            )
         except Exception:
             kakao_map = {}
-            _log.warning("grooming_pipe [%s] kakao_search_failed: fallback empty", req_id)
+            _log.warning(
+                "context_pipe [%s] kakao_search_failed context=%s fallback empty",
+                req_id,
+                normalized_context,
+            )
         kakao_ms = int((time.monotonic() - t_kakao) * 1000)
         kakao_call_count = len(kakao_map)
 
@@ -138,9 +161,10 @@ async def recommend(
         total_ms = int((time.monotonic() - t_full) * 1000)
 
         _log.info(
-            "grooming_pipe [%s] summary candidate_raw=%d after_cap=%d returned=%d "
+            "context_pipe [%s] summary context=%s candidate_raw=%d after_cap=%d returned=%d "
             "kakao_keys=%d latency_total=%dms blog=%dms kakao=%dms rank=%dms",
             req_id,
+            normalized_context,
             candidate_count_raw,
             candidate_count_after_cap,
             len(facilities_raw),
@@ -152,10 +176,11 @@ async def recommend(
         )
 
         facilities = [FacilityItem(**{k: v for k, v in f.items()}) for f in facilities_raw]
-        recommendation = build_grooming_copy(facilities_raw, trends_raw, req_id=req_id)
+        recommendation = build_context_copy(normalized_context, facilities_raw, trends_raw, req_id=req_id)
         _log.info(
-            "grooming_pipe [%s] response facilities=%d recommend_len=%s",
+            "context_pipe [%s] response context=%s facilities=%d recommend_len=%s",
             req_id,
+            normalized_context,
             len(facilities),
             len(recommendation) if recommendation else 0,
         )

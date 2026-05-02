@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Optional
 import logging
 
 CONTEXT_LABELS: dict[str, str] = {
@@ -46,35 +46,50 @@ def build_prompt(
     return "\n".join(lines) + "\n\n추천해줘."
 
 
+def build_context_copy(
+    context: str,
+    facilities: list[dict],
+    trends: list[tuple[str, int]],
+    req_id: Optional[str] = None,
+) -> Optional[str]:
+    """컨텍스트 기반 규칙 추천 카피 (LLM 없음)."""
+    rid = req_id or "-"
+    context_label = CONTEXT_LABELS.get(context, context)
+
+    if facilities:
+        n = len(facilities)
+        first = facilities[0]
+        text = (
+            f"근처 {n}개 {context_label} 후보를 찾았습니다. "
+            f"가장 가까운 {first['name']}까지 {first['distance_m']}m입니다."
+        )
+        _log.info(
+            "context_copy [%s] rule context=%s facilities=%d first_distance_m=%s",
+            rid,
+            context,
+            n,
+            first.get("distance_m"),
+        )
+        return text
+
+    fallback = build_trend_only_copy(context, trends) or None
+    _log.info(
+        "context_copy [%s] trend_fallback context=%s trends=%d out_len=%s",
+        rid,
+        context,
+        len(trends),
+        len(fallback) if fallback else 0,
+    )
+    return fallback
+
+
 def build_grooming_copy(
     facilities: list[dict],
     trends: list[tuple[str, int]],
     req_id: Optional[str] = None,
 ) -> Optional[str]:
-    """그루밍 MVP 규칙 기반 추천 카피 (LLM 없음). §4.2"""
-    rid = req_id or "-"
-    if facilities:
-        n = len(facilities)
-        first = facilities[0]
-        text = (
-            f"근처 {n}개 애견 미용 시설을 찾았습니다. "
-            f"가장 가까운 {first['name']}까지 {first['distance_m']}m입니다."
-        )
-        _log.info(
-            "grooming_copy [%s] rule facilities=%d first_distance_m=%s",
-            rid,
-            n,
-            first.get("distance_m"),
-        )
-        return text
-    fallback = build_trend_only_copy("grooming", trends) or None
-    _log.info(
-        "grooming_copy [%s] trend_fallback trends=%d out_len=%s",
-        rid,
-        len(trends),
-        len(fallback) if fallback else 0,
-    )
-    return fallback
+    """하위 호환용 그루밍 전용 래퍼."""
+    return build_context_copy("grooming", facilities, trends, req_id=req_id)
 
 
 def build_trend_only_copy(context: str, trends: list[tuple[str, int]]) -> str:

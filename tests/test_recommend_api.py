@@ -84,3 +84,27 @@ async def test_recommend_no_pet():
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             response = await ac.post("/recommend", json=payload, headers=HEADERS)
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_recommend_supplies_legacy_context_uses_trend_only():
+    payload = {**VALID_PAYLOAD, "context": "snack"}
+    mock_reco = "요즘 간식 키워드 기준으로 공급이 안정적인 용품점을 먼저 확인해보세요."
+
+    with patch("app.api.recommend.get_nearby_facilities", new=AsyncMock(return_value=[])), \
+         patch("app.api.recommend.get_trend", new=AsyncMock(side_effect=[
+             [("용품점", 10.0)],
+             [("오리젠", 7.0)],
+             [("로얄캐닌", 5.0)],
+             [("의류", 1.0)],
+         ])), \
+         patch("app.api.recommend.generate_recommendation", new=AsyncMock(return_value=mock_reco)):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.post("/recommend", json=payload, headers=HEADERS)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["context"] == "snack"
+    assert data["recommendation"] == mock_reco
+    assert len(data["facilities"]) == 0
+    assert len(data["trends"]) >= 1

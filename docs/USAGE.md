@@ -97,8 +97,8 @@ X-API-Key: <발급해 둔 평문 API 키>
 | GET | `/facilities` | 시설 목록 (cursor 페이지네이션, 필터) | 일반/관리자 |
 | GET | `/facilities/{facility_id}` | 시설 상세 (`BUSINESS`/`HOSPITAL`에 따라 `details` 포함) | 일반/관리자 |
 | GET | `/stats/summary` | 시도·시군구·유형별 건수 (`영업` 상태만 집계) | 일반/관리자 |
-| GET | `/trends/{category}` | 카테고리별 인기 키워드 (Redis; `snack`·`food`·`grooming`·`hospital`·`clothes`) | 일반/관리자 |
-| POST | `/collect/trigger` | 공공데이터 수동 수집 (영업장 + 병원 순차 실행) | **관리자만** |
+| GET | `/trends/{category}` | 카테고리별 인기 키워드 (Redis; `supplies`·`snack`·`food`·`grooming`·`hospital`·`clothes`) | 일반/관리자 |
+| POST | `/collect/trigger` | 수동 수집 (`scope=facilities|trends|all`) | **관리자만** |
 
 ### 목록 쿼리 예시 (`/facilities`)
 
@@ -127,6 +127,12 @@ curl -s -X POST -H "X-API-Key: $ADMIN_KEY" \
 ```
 
 `POST /collect/trigger`는 `PUBLIC_DATA_API_KEY`가 유효하고 네트워크·API 응답이 정상일 때 소스별로 `collection_logs`에 기록되며, 응답은 소스별 수집 결과 리스트 형태입니다.
+
+`scope`를 지정하면 다음처럼 분리 실행할 수 있습니다.
+
+- `scope=facilities` (기본): 공공데이터 시설 수집만 실행
+- `scope=trends`: 네이버 트렌드 수집만 실행
+- `scope=all`: 트렌드 + 시설 수집 모두 실행
 
 ## 자동 수집 스케줄
 

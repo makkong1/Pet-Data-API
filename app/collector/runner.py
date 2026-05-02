@@ -159,3 +159,17 @@ async def run_trend_collection() -> list[dict]:
                 "error_message": str(e),
             })
     return results
+
+
+async def run_collection_by_scope(db: AsyncSession, scope: str = "facilities") -> dict:
+    if scope == "facilities":
+        return {"scope": scope, "facility_logs": await run_collection(db)}
+    if scope == "trends":
+        return {"scope": scope, "trend_logs": await run_trend_collection()}
+    if scope == "all":
+        return {
+            "scope": scope,
+            "trend_logs": await run_trend_collection(),
+            "facility_logs": await run_collection(db),
+        }
+    raise ValueError(f"Unknown collect scope: {scope}")

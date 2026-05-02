@@ -5,6 +5,7 @@ from app.collector.client import fetch_public_api
 NAVER_BLOG_URL = "https://openapi.naver.com/v1/search/blog.json"
 
 CATEGORY_KEYWORDS: dict[str, list[str]] = {
+    "supplies": ["반려동물 용품점 추천", "펫샵 추천"],
     "snack":    ["강아지 간식 추천", "고양이 간식 추천"],
     "food":     ["강아지 사료 추천", "고양이 사료 추천"],
     "grooming": ["강아지 미용실 후기", "반려동물 미용"],

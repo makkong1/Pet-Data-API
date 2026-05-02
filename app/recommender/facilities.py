@@ -5,12 +5,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 CONTEXT_TO_FACILITY_TYPE: dict[str, Optional[str]] = {
     "grooming": "BUSINESS",
     "hospital": "HOSPITAL",
-    "snack": None,
-    "food": None,
-    "clothes": None,
+    "supplies": "BUSINESS",
 }
 
-VALID_CONTEXTS = set(CONTEXT_TO_FACILITY_TYPE.keys())
+LEGACY_CONTEXT_ALIASES: dict[str, str] = {
+    "snack": "supplies",
+    "food": "supplies",
+    "clothes": "supplies",
+}
+
+VALID_CONTEXTS = set(CONTEXT_TO_FACILITY_TYPE.keys()) | set(LEGACY_CONTEXT_ALIASES.keys())
 
 _HAVERSINE_SQL = """
 WITH distances AS (
@@ -38,6 +42,10 @@ LIMIT :top_n
 """
 
 
+def normalize_context(context: str) -> str:
+    return LEGACY_CONTEXT_ALIASES.get(context, context)
+
+
 async def get_nearby_facilities(
     db: AsyncSession,
     lat: float,
@@ -46,7 +54,8 @@ async def get_nearby_facilities(
     radius_km: float,
     top_n: int,
 ) -> list[dict]:
-    ftype = CONTEXT_TO_FACILITY_TYPE.get(context)
+    normalized_context = normalize_context(context)
+    ftype = CONTEXT_TO_FACILITY_TYPE.get(normalized_context)
     if ftype is None:
         return []
 
@@ -62,6 +71,12 @@ async def get_nearby_facilities(
     )
     rows = result.mappings().all()
     return [
-        {"name": r["name"], "distance_m": int(r["distance_m"]), "address": r["address"], "lat": r["lat"], "lng": r["lng"]}
+        {
+            "name": r["name"],
+            "distance_m": int(r["distance_m"]),
+            "address": r["address"],
+            "lat": r.get("lat"),
+            "lng": r.get("lng"),
+        }
         for r in rows
     ]

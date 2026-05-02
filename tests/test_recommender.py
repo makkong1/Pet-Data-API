@@ -4,10 +4,10 @@ from app.recommender.facilities import get_nearby_facilities, VALID_CONTEXTS
 
 
 @pytest.mark.asyncio
-async def test_get_nearby_facilities_no_type_returns_empty():
-    """snack/food/clothes는 시설 없음 → 빈 배열."""
+async def test_get_nearby_facilities_unknown_context_returns_empty():
+    """알 수 없는 context는 빈 배열."""
     db = AsyncMock()
-    result = await get_nearby_facilities(db, 37.5, 126.9, "snack", 3.0, 5)
+    result = await get_nearby_facilities(db, 37.5, 126.9, "unknown", 3.0, 5)
     assert result == []
     db.execute.assert_not_called()
 
@@ -15,7 +15,7 @@ async def test_get_nearby_facilities_no_type_returns_empty():
 @pytest.mark.asyncio
 async def test_get_nearby_facilities_grooming_returns_rows():
     """grooming context → BUSINESS 타입 시설 반환."""
-    mock_row = {"name": "해피독", "distance_m": 320.5, "address": "서울시 마포구"}
+    mock_row = {"name": "해피독", "distance_m": 320.5, "address": "서울시 마포구", "lat": 37.56, "lng": 126.97}
     mock_result = MagicMock()
     mock_result.mappings.return_value.all.return_value = [mock_row]
 
@@ -34,6 +34,7 @@ def test_valid_contexts():
     assert "grooming" in VALID_CONTEXTS
     assert "hospital" in VALID_CONTEXTS
     assert "snack" in VALID_CONTEXTS
+    assert "supplies" in VALID_CONTEXTS
 
 
 from app.recommender.builder import build_prompt

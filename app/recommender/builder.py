@@ -3,6 +3,7 @@ from typing import Optional
 CONTEXT_LABELS: dict[str, str] = {
     "grooming": "미용실",
     "hospital": "동물병원",
+    "supplies": "용품점",
     "snack": "간식",
     "food": "사료",
     "clothes": "의류",

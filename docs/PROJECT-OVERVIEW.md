@@ -12,12 +12,12 @@
 
 ## 역할과 경계
 
-| 구분                              | 내용                                                                                                                                                                                                                                                                                                                                            |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **데이터 적재 대상 (PostgreSQL)** | 행안부 공공데이터 기반 **반려동물 미용·판매 등 영업시설**(`petShop` 수집), **동물병원**(`animalHospital` 수집). 시설 공통 테이블 `pet_facilities`, 유형별 상세 `business_details` / `hospital_details`.                                                                                                                                         |
-| **트렌드 (Redis)**                | 네이버 블로그 검색 결과 텍스트에서 **키워드 빈도**를 뽑아 **Sorted Set**으로 저장. API는 Redis에서만 읽음.                                                                                                                                                                                                                                      |
-| **인증**                          | 모든 보호 엔드포인트는 **`X-API-Key`** 헤더. 서버에는 **SHA-256 해시**만 보관 (`API_KEY_HASH`, `ADMIN_API_KEY_HASH`). 관리자 전용(예: 수집 트리거)은 관리자 키만 허용.                                                                                                                                                                          |
-| **DB 적용 순서**                  | [`migrations/init.sql`](../migrations/init.sql) 후 [`v2_pet_facilities.sql`](../migrations/v2_pet_facilities.sql) 필수. 이미 구 스키마가 있는 DB는 [`002_drop_abandoned_animals.sql`](../migrations/002_drop_abandoned_animals.sql) 등으로 정리 가능.                                                                                         |
+| 구분                              | 내용                                                                                                                                                                                                                                                  |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **데이터 적재 대상 (PostgreSQL)** | 행안부 공공데이터 기반 **반려동물 미용·판매 등 영업시설**(`petShop` 수집), **동물병원**(`animalHospital` 수집). 시설 공통 테이블 `pet_facilities`, 유형별 상세 `business_details` / `hospital_details`.                                               |
+| **트렌드 (Redis)**                | 네이버 블로그 검색 결과 텍스트에서 **키워드 빈도**를 뽑아 **Sorted Set**으로 저장. API는 Redis에서만 읽음.                                                                                                                                            |
+| **인증**                          | 모든 보호 엔드포인트는 **`X-API-Key`** 헤더. 서버에는 **SHA-256 해시**만 보관 (`API_KEY_HASH`, `ADMIN_API_KEY_HASH`). 관리자 전용(예: 수집 트리거)은 관리자 키만 허용.                                                                                |
+| **DB 적용 순서**                  | [`migrations/init.sql`](../migrations/init.sql) 후 [`v2_pet_facilities.sql`](../migrations/v2_pet_facilities.sql) 필수. 이미 구 스키마가 있는 DB는 [`002_drop_abandoned_animals.sql`](../migrations/002_drop_abandoned_animals.sql) 등으로 정리 가능. |
 
 ---
 
@@ -40,7 +40,11 @@
 | 매일 **18:00** | `daily_trend_collection` | `run_trend_collection`: 카테고리별 네이버 블로그 수집 → 형태소 분석으로 키워드 집계 → Redis `save_trend`. DB 세션을 쓰지 않는 독립 잡.          |
 | 매일 **18:05** | `daily_collection`       | `run_collection`: 영업장 API → 추출·upsert, 동물병원 API → 추출·upsert. 각 소스마다 `collection_logs` 기록. `max_instances=1`로 중복 실행 방지. |
 
-수동으로 공공데이터 수집만 다시 돌리려면 관리자 키로 **`POST /collect/trigger`** (내부적으로 `run_collection`만 호출).
+관리자 키로 **`POST /collect/trigger?scope=...`**를 호출하면 수동 수집 범위를 선택할 수 있습니다.
+
+- `scope=facilities` (기본): 공공데이터 시설 수집
+- `scope=trends`: 네이버 트렌드 수집
+- `scope=all`: 트렌드 + 시설 수집
 
 ---
 
@@ -83,7 +87,7 @@ HTTP 클라이언트·재시도 등 공통은 [`app/collector/client.py`](../app
 
 ## 트렌드 카테고리
 
-[`app/collector/naver.py`](../app/collector/naver.py)의 `CATEGORY_KEYWORDS`와 동일해야 합니다: `snack`, `food`, `grooming`, `hospital`, `clothes`.
+[`app/collector/naver.py`](../app/collector/naver.py)의 `CATEGORY_KEYWORDS`와 동일해야 합니다: `supplies`, `snack`, `food`, `grooming`, `hospital`, `clothes`.
 
 ---
 
@@ -93,6 +97,7 @@ HTTP 클라이언트·재시도 등 공통은 [`app/collector/client.py`](../app
 - [`superpowers/specs/2026-04-21-pet-trend-pipeline-design.md`](superpowers/specs/2026-04-21-pet-trend-pipeline-design.md) — 트렌드 파이프라인
 - [`superpowers/specs/2026-05-01-petory-category-recommendation-redesign.md`](superpowers/specs/2026-05-01-petory-category-recommendation-redesign.md) — Petory 카테고리 추천 재설계안
 - [`superpowers/plans/2026-04-21-pet-trend-pipeline.md`](superpowers/plans/2026-04-21-pet-trend-pipeline.md) — 구현 플랜(체크리스트)
+- [`superpowers/plans/2026-05-02-phase1-refactor-log.md`](superpowers/plans/2026-05-02-phase1-refactor-log.md) — 1차 리팩토링 반영 로그
 
 ---
 

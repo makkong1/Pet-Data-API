@@ -18,7 +18,8 @@
 - **네이버 블로그 API + 형태소 분석(kiwipiepy)** — 간식·사료·미용·병원·옷 카테고리별 블로그 텍스트에서 키워드를 뽑아 Redis Sorted Set에 일일 갱신.
 - **Ollama llama3 (로컬 LLM)** — 사용자의 GPS·반려동물 정보·반경 내 공인 시설·트렌드 키워드를 묶어 한 문단 추천을 생성.
 
-Java/Spring 기반 [Petory](https://github.com/makkong1/Petory)에서 **`POST /recommend`를 호출**해 현재 페이지 맥락(`grooming` / `hospital` / `snack` / `food` / `clothes`)에 맞는 주변 시설·트렌드·AI 추천을 받아오는 용도로 설계됐습니다.
+Java/Spring 기반 [Petory](https://github.com/makkong1/Petory)에서 **`POST /recommend`를 호출**해 현재 페이지 맥락(`grooming` / `hospital` / `supplies`)에 맞는 주변 시설·트렌드·AI 추천을 받아오는 용도로 설계됐습니다.  
+레거시 호환용으로 `snack` / `food` / `clothes`도 허용하며 내부적으로 `supplies`로 처리합니다.
 
 ---
 
@@ -103,7 +104,7 @@ KoNLPy 대신 kiwipiepy. Java 런타임 불필요, NNG(일반명사)·NNP(고유
 | GET | `/facilities/{id}` | 시설 상세 + 업종별 세부정보 | 일반 |
 | GET | `/stats/summary` | 영업 중 시설 지역·타입별 통계 | 일반 |
 | GET | `/trends/{category}` | 카테고리별 인기 키워드 Top N | 일반 |
-| POST | `/collect/trigger` | 수동 수집 트리거 | 관리자 |
+| POST | `/collect/trigger` | 수동 수집 트리거 (`scope=facilities|trends|all`) | 관리자 |
 
 ### 컨텍스트 정의
 
@@ -113,11 +114,10 @@ KoNLPy 대신 kiwipiepy. Java 런타임 불필요, NNG(일반명사)·NNP(고유
 |---------|------|---------------|----------------|
 | `grooming` | 미용실 | `BUSINESS` | `grooming` |
 | `hospital` | 동물병원 | `HOSPITAL` | `hospital` |
-| `snack` | 간식 | (시설 없음) | `snack` |
-| `food` | 사료 | (시설 없음) | `food` |
-| `clothes` | 의류 | (시설 없음) | `clothes` |
+| `supplies` | 용품점 | `BUSINESS`(현재 데이터 기준) | `supplies` + (`snack`,`food`,`clothes`) |
+| `snack` / `food` / `clothes` | 레거시 호환 입력 | `supplies`로 내부 매핑 | `supplies`로 내부 매핑 |
 
-> `snack` / `food` / `clothes` 는 공인 시설 데이터가 없어 **트렌드만으로** 추천을 구성합니다.
+> `supplies`는 현재 공공데이터 수집 소스 제약으로 `BUSINESS` 시설을 활용하며, 용품점 전용 데이터 소스는 확장 예정입니다.
 
 ### `POST /recommend`
 
@@ -142,7 +142,7 @@ KoNLPy 대신 kiwipiepy. Java 런타임 불필요, NNG(일반명사)·NNP(고유
 |------|------|------|-----------|
 | `lat` | float | 필수 | - |
 | `lng` | float | 필수 | - |
-| `context` | string | 필수 | `grooming` / `hospital` / `snack` / `food` / `clothes` |
+| `context` | string | 필수 | `grooming` / `hospital` / `supplies` (legacy: `snack` / `food` / `clothes`) |
 | `radius_km` | float | 선택 | 기본 `3`, `0.5~20` |
 | `top_n` | int | 선택 | 기본 `5`, `1~20` |
 | `pet` | object | 선택 | `type`, `breed`, `age` (자유 형식) |
@@ -172,7 +172,7 @@ KoNLPy 대신 kiwipiepy. Java 런타임 불필요, NNG(일반명사)·NNP(고유
 
 **동작 규칙**
 
-- 반경 내 시설 0건 → `facilities: []` + `recommendation: null` (LLM 호출 생략)
+- 반경 내 시설이 없어도 트렌드 데이터가 있으면 추천 생성 시도
 - Redis 장애 → `trends: []` 로 graceful degradation
 - Ollama 장애·타임아웃 → `recommendation: null` (시설·트렌드는 항상 반환)
 
@@ -356,3 +356,4 @@ pet-data-api/
 - [`docs/superpowers/specs/2026-04-21-pet-recommendation-pipeline-design.md`](docs/superpowers/specs/2026-04-21-pet-recommendation-pipeline-design.md) — 추천 파이프라인 설계
 - [`docs/superpowers/specs/2026-04-21-pet-trend-pipeline-design.md`](docs/superpowers/specs/2026-04-21-pet-trend-pipeline-design.md) — 트렌드 파이프라인 설계
 - [`docs/superpowers/specs/2026-05-01-petory-category-recommendation-redesign.md`](docs/superpowers/specs/2026-05-01-petory-category-recommendation-redesign.md) — 카테고리 클릭형 추천 재설계안
+- [`docs/superpowers/plans/2026-05-02-phase1-refactor-log.md`](docs/superpowers/plans/2026-05-02-phase1-refactor-log.md) — 리팩토링 반영 로그

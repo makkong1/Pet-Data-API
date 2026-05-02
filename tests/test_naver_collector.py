@@ -29,5 +29,5 @@ async def test_collect_category_trends_merges_queries():
 
 
 def test_category_keywords_has_required_categories():
-    required = {"snack", "food", "grooming", "hospital", "clothes"}
+    required = {"supplies", "snack", "food", "grooming", "hospital", "clothes"}
     assert required.issubset(set(CATEGORY_KEYWORDS.keys()))

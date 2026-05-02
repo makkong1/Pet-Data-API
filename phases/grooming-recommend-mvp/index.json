@@ -1,0 +1,57 @@
+{
+  "task": "grooming-recommend-mvp",
+  "description": "그루밍 추천 MVP — 공공 DB + 네이버 블로그 멘션 + Kakao Local 조합 랭킹 파이프라인",
+  "branch": "feat-grooming-recommend-mvp",
+  "spec": "docs/GROOMING-RECOMMEND-MVP.md",
+  "steps": [
+    {
+      "id": "step1",
+      "name": "설정 레이어",
+      "file": "step1.md",
+      "status": "completed",
+      "summary": "GROOMING_MVP_ENABLED, NAVER_TIMEOUT_MS, KAKAO_TIMEOUT_MS를 Settings에 추가"
+    },
+    {
+      "id": "step2",
+      "name": "Kakao Local 키워드 검색 클라이언트",
+      "file": "step2.md",
+      "status": "completed",
+      "summary": "app/ingestion/kakao.py — Redis TTL캐시·세마포어·후보상한 포함, 7/7 통과"
+    },
+    {
+      "id": "step3",
+      "name": "그루밍 블로그 멘션 추출",
+      "file": "step3.md",
+      "status": "completed",
+      "summary": "app/ingestion/grooming_blog.py — 룰+형태소 추출·freshness·글단위 dedup, 10/10 통과"
+    },
+    {
+      "id": "step4",
+      "name": "랭킹 & Dedupe 엔진",
+      "file": "step4.md",
+      "status": "completed",
+      "summary": "app/serving/recommender/grooming_ranker.py — Haversine·RapidFuzz·4순위 정렬, 10/10 통과"
+    },
+    {
+      "id": "step5",
+      "name": "API 스키마 확장 및 핸들러 분기",
+      "file": "step5.md",
+      "status": "completed",
+      "summary": "FacilityItem 신규 필드·recommend_version 추가, /recommend 그루밍 분기 연결"
+    },
+    {
+      "id": "step6",
+      "name": "규칙 기반 추천 카피 + 폴백 + 관측성",
+      "file": "step6.md",
+      "status": "completed",
+      "summary": "build_grooming_copy 추가, 블로그·Kakao 실패 폴백, 구조화 로그 필드 포함"
+    },
+    {
+      "id": "step7",
+      "name": "회귀 테스트",
+      "file": "step7.md",
+      "status": "completed",
+      "summary": "기존 6개 + 신규 5개 = 전체 81/81 통과. 레거시·플래그 off·MVP on·폴백 검증"
+    }
+  ]
+}

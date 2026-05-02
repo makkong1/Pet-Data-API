@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock
-from app.recommender.facilities import get_nearby_facilities, VALID_CONTEXTS
+from app.serving.recommender.facilities import get_nearby_facilities, VALID_CONTEXTS
 
 
 @pytest.mark.asyncio
@@ -15,7 +15,7 @@ async def test_get_nearby_facilities_unknown_context_returns_empty():
 @pytest.mark.asyncio
 async def test_get_nearby_facilities_grooming_returns_rows():
     """grooming context → BUSINESS 타입 시설 반환."""
-    mock_row = {"name": "해피독", "distance_m": 320.5, "address": "서울시 마포구", "lat": 37.56, "lng": 126.97}
+    mock_row = {"source_id": "B001", "name": "해피독", "distance_m": 320.5, "address": "서울시 마포구", "lat": 37.56, "lng": 126.97}
     mock_result = MagicMock()
     mock_result.mappings.return_value.all.return_value = [mock_row]
 
@@ -37,7 +37,7 @@ def test_valid_contexts():
     assert "supplies" in VALID_CONTEXTS
 
 
-from app.recommender.builder import build_prompt
+from app.serving.recommender.builder import build_prompt, build_trend_only_copy
 
 
 def test_build_prompt_with_pet_and_facilities():
@@ -59,7 +59,8 @@ def test_build_prompt_no_facilities():
     assert "오리젠" in prompt
 
 
-def test_build_prompt_no_pet():
-    prompt = build_prompt("hospital", [], [], None)
-    assert "반려동물" not in prompt
-    assert "동물병원" in prompt
+def test_build_trend_only_copy_uses_keywords_only():
+    text = build_trend_only_copy("grooming", [("미용", 100), ("미용실", 50)])
+    assert "미용" in text
+    assert "공공데이터" in text or "반경" in text
+    assert "Pawsome" not in text

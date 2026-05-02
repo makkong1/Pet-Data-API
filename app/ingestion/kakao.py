@@ -13,6 +13,8 @@ KAKAO_KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
 _KAKAO_PLACE_TTL = 600  # §2.2.1
 _CANDIDATE_CAP = 20     # §2.2
 _SEMAPHORE = asyncio.Semaphore(5)  # §2.2 동시성 제한
+_GROOMING_QUERY_SUFFIX = "애견미용"
+_PET_HINTS = ("애견", "반려", "펫", "애완", "그루밍", "강아지")
 
 _log = logging.getLogger(__name__)
 
@@ -43,11 +45,20 @@ async def _set_cached(key: str, places: list[dict]) -> None:
     await r.setex(key, _KAKAO_PLACE_TTL, json.dumps(places, ensure_ascii=False))
 
 
+def _build_query(name: str) -> str:
+    return f"{name} {_GROOMING_QUERY_SUFFIX}".strip()
+
+
+def _is_pet_related_doc(doc: dict) -> bool:
+    hay = f"{doc.get('place_name', '')} {doc.get('category_name', '')}".lower()
+    return any(token in hay for token in _PET_HINTS)
+
+
 async def _call_kakao(name: str, lat: float, lng: float) -> list[dict]:
     """Kakao 키워드 검색 — 세마포어 보호."""
     headers = {"Authorization": f"KakaoAK {settings.KAKAO_REST_API_KEY}"}
     params = {
-        "query": name,
+        "query": _build_query(name),
         "x": str(lng),
         "y": str(lat),
         "radius": 20000,
@@ -60,10 +71,12 @@ async def _call_kakao(name: str, lat: float, lng: float) -> list[dict]:
             resp = await client.get(KAKAO_KEYWORD_URL, headers=headers, params=params)
             resp.raise_for_status()
             docs = resp.json().get("documents", [])
+    docs = [d for d in docs if _is_pet_related_doc(d)]
     return [
         {
             "name": d.get("place_name", ""),
             "address": d.get("road_address_name") or d.get("address_name", ""),
+            "category_name": d.get("category_name", ""),
             "lat": float(d["y"]),
             "lng": float(d["x"]),
         }

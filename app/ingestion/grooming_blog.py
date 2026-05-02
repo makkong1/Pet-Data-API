@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from app.ingestion.naver import search_naver_blog
-from app.ingestion.analyzer.morpheme import extract_nouns
 from app.platform.core.config import settings
 
 # 그루밍 전용 블로그 쿼리 (기존 CATEGORY_KEYWORDS와 별도 유지)
@@ -20,10 +19,13 @@ _BLOCKLIST = frozenset([
     "미용실", "애견", "펫", "동물", "미용", "샵", "가게", "살롱",
     "salon", "shop", "추천", "후기", "강아지", "고양이", "반려견",
     "강남", "서울", "부산", "근처", "인근", "주변", "동네",
+    "자격증", "관리", "가위", "위생", "셀프", "전문", "학원",
 ])
 
 _CANDIDATE_CAP = 20  # §2.2 후보 상한 (Kakao 단계 진입 전)
 _FRESHNESS_WINDOW_DAYS = 180  # freshness_weight 적용 기간
+_MIN_MENTION_COUNT = 2  # 노이즈 제거: 최소 글수 기준
+_CANDIDATE_SANITIZE = re.compile(r"[\"'“”‘’·\[\]\(\)\{\}]")
 
 _log = logging.getLogger(__name__)
 
@@ -31,20 +33,21 @@ _log = logging.getLogger(__name__)
 def _extract_candidates_from_text(text: str) -> set[str]:
     """타이틀·스니펫 텍스트 → 상호명 후보 집합."""
     candidates: set[str] = set()
+    lowered = text.lower()
+    if "미용" not in lowered and "그루밍" not in lowered and "애견" not in lowered and "반려" not in lowered:
+        return candidates
+
+    def _clean(raw: str) -> str:
+        return _CANDIDATE_SANITIZE.sub("", raw).strip()
 
     for m in _PATTERN_SUFFIX.finditer(text):
-        name = m.group(1).strip()
+        name = _clean(m.group(1))
         if len(name) >= 2 and name not in _BLOCKLIST:
             candidates.add(name)
     for m in _PATTERN_PREFIX.finditer(text):
-        name = m.group(1).strip()
+        name = _clean(m.group(1))
         if len(name) >= 2 and name not in _BLOCKLIST:
             candidates.add(name)
-
-    nouns = extract_nouns(text)
-    for noun in nouns:
-        if len(noun) >= 2 and noun not in _BLOCKLIST:
-            candidates.add(noun)
 
     return candidates
 
@@ -115,7 +118,15 @@ async def extract_grooming_mentions(
                     entry["freshness_sum"] += freshness
                     entry["post_ids"].add(post_id)
 
-    sorted_names = sorted(aggregator, key=lambda n: aggregator[n]["count"], reverse=True)
+    sorted_names = sorted(
+        (
+            name
+            for name, entry in aggregator.items()
+            if entry["count"] >= _MIN_MENTION_COUNT
+        ),
+        key=lambda n: aggregator[n]["count"],
+        reverse=True,
+    )
     top_names = sorted_names[:_CANDIDATE_CAP]
 
     mention_map: dict[str, dict] = {}
@@ -135,5 +146,7 @@ async def extract_grooming_mentions(
         len(top_names),
         elapsed_ms,
     )
+    if top_names:
+        _log.info("grooming_blog [%s] top_names_sample=%s", rid, top_names[:10])
 
     return mention_map, top_names

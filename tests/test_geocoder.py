@@ -1,20 +1,19 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
-from app.collector.geocoder import geocode_address
+from app.ingestion.geocoder import geocode_address
 
 
 @pytest.mark.asyncio
 async def test_geocode_success():
     mock_response = MagicMock()
     mock_response.json.return_value = {
-        "addresses": [{"y": "37.5665", "x": "126.9780"}]
+        "documents": [{"y": "37.5665", "x": "126.9780"}]
     }
     mock_response.raise_for_status = MagicMock()
 
-    with patch("app.collector.geocoder.settings") as mock_settings, \
-         patch("app.collector.geocoder.httpx.AsyncClient") as mock_client_cls:
-        mock_settings.NAVER_MAP_CLIENT_ID = "testid"
-        mock_settings.NAVER_MAP_CLIENT_SECRET = "testsecret"
+    with patch("app.ingestion.geocoder.settings") as mock_settings, \
+         patch("app.ingestion.geocoder.httpx.AsyncClient") as mock_client_cls:
+        mock_settings.KAKAO_REST_API_KEY = "kakao-test-key"
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__ = AsyncMock(return_value=mock_ctx)
         mock_ctx.__aexit__ = AsyncMock(return_value=False)
@@ -28,8 +27,8 @@ async def test_geocode_success():
 
 @pytest.mark.asyncio
 async def test_geocode_no_key_returns_none():
-    with patch("app.collector.geocoder.settings") as mock_settings:
-        mock_settings.NAVER_MAP_CLIENT_ID = ""
+    with patch("app.ingestion.geocoder.settings") as mock_settings:
+        mock_settings.KAKAO_REST_API_KEY = ""
         result = await geocode_address("서울시 어딘가")
     assert result is None
 
@@ -37,13 +36,12 @@ async def test_geocode_no_key_returns_none():
 @pytest.mark.asyncio
 async def test_geocode_empty_docs_returns_none():
     mock_response = MagicMock()
-    mock_response.json.return_value = {"addresses": []}
+    mock_response.json.return_value = {"documents": []}
     mock_response.raise_for_status = MagicMock()
 
-    with patch("app.collector.geocoder.settings") as mock_settings, \
-         patch("app.collector.geocoder.httpx.AsyncClient") as mock_client_cls:
-        mock_settings.NAVER_MAP_CLIENT_ID = "testid"
-        mock_settings.NAVER_MAP_CLIENT_SECRET = "testsecret"
+    with patch("app.ingestion.geocoder.settings") as mock_settings, \
+         patch("app.ingestion.geocoder.httpx.AsyncClient") as mock_client_cls:
+        mock_settings.KAKAO_REST_API_KEY = "kakao-test-key"
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__ = AsyncMock(return_value=mock_ctx)
         mock_ctx.__aexit__ = AsyncMock(return_value=False)

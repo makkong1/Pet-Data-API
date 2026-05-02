@@ -1,6 +1,6 @@
 from collections import Counter
-from app.analyzer.morpheme import extract_nouns
-from app.analyzer.trend import aggregate_keywords
+from app.ingestion.analyzer.morpheme import extract_nouns
+from app.ingestion.analyzer.trend import aggregate_keywords
 
 
 def test_extract_nouns_returns_nouns():

@@ -11,8 +11,8 @@ HEADERS = {"X-API-Key": API_KEY}
 
 @pytest.fixture
 def mock_settings(monkeypatch):
-    monkeypatch.setattr("app.core.config.settings.API_KEY_HASH", API_KEY_HASH)
-    monkeypatch.setattr("app.core.config.settings.ADMIN_API_KEY_HASH", "different_hash")
+    monkeypatch.setattr("app.platform.core.config.settings.API_KEY_HASH", API_KEY_HASH)
+    monkeypatch.setattr("app.platform.core.config.settings.ADMIN_API_KEY_HASH", "different_hash")
 
 
 @pytest.fixture(autouse=True)
@@ -24,7 +24,7 @@ def mock_db(monkeypatch):
         mock.execute.return_value.scalar_one_or_none.return_value = None
         yield mock
 
-    monkeypatch.setattr("app.core.database.AsyncSessionLocal", mock_session)
+    monkeypatch.setattr("app.platform.core.database.AsyncSessionLocal", mock_session)
 
 
 @pytest.mark.asyncio

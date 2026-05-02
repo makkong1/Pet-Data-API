@@ -15,7 +15,7 @@
 반려동물 생활 정보를 **세 가지 신호**로 엮어 한 번에 제공하는 Python 백엔드입니다.
 
 - **공공데이터 (행안부)** — 전국 동물미용업·동물병원 공식 등록 정보를 수집해 `pet_facilities` 테이블에 적재. 주소는 **Kakao 로컬 API**로 지오코딩해 `lat/lng` 컬럼에 저장.
-- **네이버 블로그 API + 형태소 분석(kiwipiepy)** — 간식·사료·미용·병원·옷 카테고리별 블로그 텍스트에서 키워드를 뽑아 Redis Sorted Set에 일일 갱신.
+- **네이버 블로그 API + 형태소 분석(kiwipiepy)** — 카테고리별 검색 스니펫에서 키워드 빈도만 집계해 Redis에 짧은 TTL로 둠(원문 DB 미보관). **상용 시 네이버 검색 API 이용약관·한도 확인 필수.**
 - **Ollama llama3 (로컬 LLM)** — 사용자의 GPS·반려동물 정보·반경 내 공인 시설·트렌드 키워드를 묶어 한 문단 추천을 생성.
 
 Java/Spring 기반 [Petory](https://github.com/makkong1/Petory)에서 **`POST /recommend`를 호출**해 현재 페이지 맥락(`grooming` / `hospital` / `supplies`)에 맞는 주변 시설·트렌드·AI 추천을 받아오는 용도로 설계됐습니다.  
@@ -66,18 +66,21 @@ Java/Spring 기반 [Petory](https://github.com/makkong1/Petory)에서 **`POST /r
 └──────────────────────────────────────────────────────────────┘
 ```
 
+**상세 흐름(배치 수집 vs 읽기 전용 API, Mermaid 다이어그램)** → [`docs/DATA-AND-API-FLOW.md`](docs/DATA-AND-API-FLOW.md)  
+**수집 코드 vs 서빙 코드 폴더 맵** → [`docs/INGESTION-VS-SERVING.md`](docs/INGESTION-VS-SERVING.md)
+
 ---
 
 ## 핵심 기술 결정
 
 ### Haversine 반경 검색 (PostgreSQL)
-`/recommend` 에서 사용자 좌표로부터 **반경 N km 이내**의 시설만 뽑기 위해 Haversine 공식을 **Pure SQL**로 계산합니다 (`6371000 * acos(...)`). PostGIS 없이도 동작하며, `lat IS NOT NULL` + `type` 필터와 함께 `ORDER BY distance_m LIMIT :top_n` 으로 상위만 반환합니다. 자세한 쿼리는 [`app/recommender/facilities.py`](app/recommender/facilities.py).
+`/recommend` 에서 사용자 좌표로부터 **반경 N km 이내**의 시설만 뽑기 위해 Haversine 공식을 **Pure SQL**로 계산합니다 (`6371000 * acos(...)`). PostGIS 없이도 동작하며, `lat IS NOT NULL` + `type` 필터와 함께 `ORDER BY distance_m LIMIT :top_n` 으로 상위만 반환합니다. 자세한 쿼리는 [`app/serving/recommender/facilities.py`](app/serving/recommender/facilities.py).
 
 ### 좌표가 없는 시설 처리
-행안부 API 응답에 좌표가 없어 수집 직후 **Kakao 로컬 API**로 주소→`lat/lng` 을 보강합니다. 실패 시 `NULL` 로 두고, 반경 쿼리에서 자동 제외됩니다. 지오코더는 [`app/collector/geocoder.py`](app/collector/geocoder.py).
+행안부 API 응답에 좌표가 없어 수집 직후 **Kakao 로컬 API**로 주소→`lat/lng` 을 보강합니다. 실패 시 `NULL` 로 두고, 반경 쿼리에서 자동 제외됩니다. 지오코더는 [`app/ingestion/geocoder.py`](app/ingestion/geocoder.py).
 
 ### LLM 호출 가드
-주변 시설이 **한 건도 없으면** Ollama 호출 자체를 건너뛰고 `recommendation: null` 을 반환합니다. 시스템 프롬프트에도 "**제공된 시설 목록 외의 시설명은 절대 만들어내지 마**" 제약을 넣어 **환각 시설 생성**을 차단했습니다. 프롬프트/호출부는 [`app/recommender/builder.py`](app/recommender/builder.py), [`app/recommender/llm.py`](app/recommender/llm.py).
+주변 시설이 **한 건도 없으면** Ollama 호출 자체를 건너뛰고 `recommendation: null` 을 반환합니다. 시스템 프롬프트에도 "**제공된 시설 목록 외의 시설명은 절대 만들어내지 마**" 제약을 넣어 **환각 시설 생성**을 차단했습니다. 프롬프트/호출부는 [`app/serving/recommender/builder.py`](app/serving/recommender/builder.py), [`app/serving/recommender/llm.py`](app/serving/recommender/llm.py).
 
 ### Keyset 페이지네이션
 `/facilities` 목록은 `LIMIT/OFFSET` 대신 `WHERE id > :cursor ORDER BY id LIMIT n`. 인덱스 탐색만으로 O(log n) 유지.
@@ -172,7 +175,8 @@ KoNLPy 대신 kiwipiepy. Java 런타임 불필요, NNG(일반명사)·NNP(고유
 
 **동작 규칙**
 
-- 반경 내 시설이 없어도 트렌드 데이터가 있으면 추천 생성 시도
+- 반경 내 시설이 없고 트렌드만 있으면 **LLM 없이** Redis(네이버 집계) 키워드만으로 짧은 안내 문구 생성(가짜 업장명 방지)
+- 반경 내 시설이 있으면 **LLM**으로 보조 문장 생성(프롬프트상 목록 밖 상호 금지)
 - Redis 장애 → `trends: []` 로 graceful degradation
 - Ollama 장애·타임아웃 → `recommendation: null` (시설·트렌드는 항상 반환)
 
@@ -332,18 +336,21 @@ python3 -c "import secrets,hashlib; k=secrets.token_hex(32); print('KEY:', k); p
 ```
 pet-data-api/
 ├── app/
-│   ├── api/          # FastAPI 라우터 (recommend, facilities, stats, trends, collect)
-│   ├── analyzer/     # 형태소 분석 (kiwipiepy), 키워드 집계
-│   ├── cache/        # Redis 트렌드 Sorted Set
-│   ├── collector/    # 공공데이터·네이버 수집, Kakao 지오코더, runner
-│   ├── recommender/  # Haversine 쿼리, 프롬프트 빌더, Ollama 클라이언트
-│   ├── core/         # config, database, auth
-│   ├── models/       # SQLAlchemy 모델
-│   ├── scheduler/    # APScheduler 잡 설정
-│   ├── schemas/      # Pydantic 응답 스키마
-│   └── main.py       # FastAPI lifespan · 라우터 등록
-├── migrations/       # DB 초기화 + 스키마 변경 SQL
-├── docs/             # 개요·사용·설계 문서
+│   ├── ingestion/        # 배치 수집 (핵심)
+│   │   └── analyzer/
+│   ├── serving/          # HTTP 서빙 (핵심)
+│   │   ├── api/
+│   │   └── recommender/
+│   ├── platform/         # 공용: 설정·DB·인증·ORM·스키마·Redis·스케줄러
+│   │   ├── core/
+│   │   ├── models/
+│   │   ├── schemas/
+│   │   ├── cache/
+│   │   └── scheduler/
+│   └── main.py
+├── migrations/
+├── docs/
+├── scripts/              # 선택 도구 (예: batch_geocode.py)
 └── tests/
 ```
 
@@ -351,6 +358,7 @@ pet-data-api/
 
 ## 관련 문서
 
+- [`docs/GROOMING-RECOMMEND-MVP.md`](docs/GROOMING-RECOMMEND-MVP.md) — 그루밍 추천 MVP(구현 전 리스크·Petory DTO)
 - [`docs/PROJECT-OVERVIEW.md`](docs/PROJECT-OVERVIEW.md) — 역할·경계·런타임/배치 동작 요약
 - [`docs/USAGE.md`](docs/USAGE.md) — 실제 `curl` 예시 포함 사용 가이드
 - [`docs/superpowers/specs/2026-04-21-pet-recommendation-pipeline-design.md`](docs/superpowers/specs/2026-04-21-pet-recommendation-pipeline-design.md) — 추천 파이프라인 설계

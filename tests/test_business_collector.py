@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from app.collector.business import parse_business_item, extract_businesses, fetch_all_businesses
+from app.ingestion.business import parse_business_item, extract_businesses, fetch_all_businesses
 
 
 def test_parse_business_item_maps_fields():
@@ -79,7 +79,7 @@ async def test_fetch_all_businesses_collects_multiple_pages():
         }
     }
 
-    with patch("app.collector.business.fetch_businesses", new=AsyncMock(side_effect=[page1, page2])) as mocked:
+    with patch("app.ingestion.business.fetch_businesses", new=AsyncMock(side_effect=[page1, page2])) as mocked:
         rows = await fetch_all_businesses(num_of_rows=2)
 
     assert len(rows) == 3

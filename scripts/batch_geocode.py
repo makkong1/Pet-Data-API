@@ -8,8 +8,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
-from app.core.config import settings
-from app.collector.geocoder import geocode_address
+from app.platform.core.config import settings
+from app.ingestion.geocoder import geocode_address
 
 
 async def run():

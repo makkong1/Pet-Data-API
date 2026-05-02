@@ -2,6 +2,8 @@
 
 이 문서는 **현재 저장소 코드**(`app/`, `migrations/`, `tests/`)를 기준으로, 이 프로젝트가 **무엇을 하고 어떻게 돌아가는지** 한곳에 정리한 것입니다. 세부 실행 절차는 [`USAGE.md`](USAGE.md), 엔드포인트 표는 루트 [`README.md`](../README.md)를 함께 보세요.
 
+**수집(Ingestion) vs 서빙(Serving)** 코드 위치를 폴더 기준으로 나눈 맵은 [`INGESTION-VS-SERVING.md`](INGESTION-VS-SERVING.md).
+
 ---
 
 ## 한 줄 요약
@@ -25,15 +27,15 @@
 
 1. **Uvicorn**으로 `app.main:app` 기동.
 2. **Lifespan**에서 APScheduler가 시작되고, 프로세스 종료 시 스케줄러가 내려감.
-3. 등록된 **HTTP 라우터**: `facilities`, `stats`, `collect`, `trends` (접두사·경로는 각 `app/api/*.py` 및 OpenAPI `/docs` 참고).
+3. 등록된 **HTTP 라우터**: `app/serving/api/*.py` (OpenAPI `/docs` 참고).
 4. **DB 세션**은 `AsyncSessionLocal` + 의존성 주입으로 요청 단위 사용.
-5. **트렌드 조회** (`GET /trends/{category}`)는 Redis에 연결해 키워드 순위와 갱신 시각을 반환. Redis 오류·데이터 없음 시 **503** 등으로 표현 (구현은 [`app/api/trends.py`](../app/api/trends.py)).
+5. **트렌드 조회** (`GET /trends/{category}`)는 Redis에 연결해 키워드 순위와 갱신 시각을 반환. Redis 오류·데이터 없음 시 **503** 등으로 표현 (구현은 [`app/serving/api/trends.py`](../app/serving/api/trends.py)).
 
 ---
 
 ## 배치 동작 (스케줄)
 
-설정 파일: [`app/scheduler/jobs.py`](../app/scheduler/jobs.py). 타임존을 별도 지정하지 않으므로 **프로세스 로컬 시각** 기준입니다.
+설정 파일: [`app/platform/scheduler/jobs.py`](../app/platform/scheduler/jobs.py). 타임존을 별도 지정하지 않으므로 **프로세스 로컬 시각** 기준입니다.
 
 | 시간 (cron)    | 잡 ID                    | 하는 일                                                                                                                                         |
 | -------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -52,18 +54,18 @@
 
 ```text
 [data.go.kr]
-    → app/collector/business.py · hospital.py (fetch + extract)
-    → app/collector/runner.py::_upsert_facility
+    → app/ingestion/business.py · hospital.py (fetch + extract)
+    → app/ingestion/runner.py::_upsert_facility
     → PostgreSQL (pet_facilities, *_details, collection_logs)
 
 [네이버 블로그 Open API]
-    → app/collector/naver.py
-    → app/analyzer/trend.py (aggregate_keywords, kiwipiepy 기반)
-    → app/cache/redis.py (Sorted Set)
+    → app/ingestion/naver.py
+    → app/ingestion/analyzer/trend.py (aggregate_keywords, kiwipiepy 기반)
+    → app/platform/cache/redis.py (Sorted Set)
     → GET /trends/{category} 가 Redis에서 조회
 ```
 
-HTTP 클라이언트·재시도 등 공통은 [`app/collector/client.py`](../app/collector/client.py)를 따릅니다.
+HTTP 클라이언트·재시도 등 공통은 [`app/ingestion/client.py`](../app/ingestion/client.py)를 따릅니다.
 
 ---
 
@@ -72,14 +74,15 @@ HTTP 클라이언트·재시도 등 공통은 [`app/collector/client.py`](../app
 | 경로             | 역할                                                            |
 | ---------------- | --------------------------------------------------------------- |
 | `app/main.py`    | FastAPI 앱, 라우터 등록, lifespan에서 스케줄러 시작/종료        |
-| `app/api/`       | `facilities`, `stats`, `collect`, `trends` 라우터               |
-| `app/collector/` | 공공 API·네이버 수집, `run_collection` / `run_trend_collection` |
-| `app/analyzer/`  | 형태소·트렌드 집계                                              |
-| `app/cache/`     | Redis 트렌드 저장/조회                                          |
-| `app/core/`      | 설정(`pydantic-settings`), 비동기 DB, API Key 검증              |
-| `app/models/`    | ORM 모델(로그 등)                                               |
-| `app/schemas/`   | Pydantic 응답 스키마                                            |
-| `app/scheduler/` | APScheduler 잡 정의                                             |
+| `app/serving/api/` | `facilities`, `stats`, `collect`, `trends`, `recommend` 라우터 |
+| `app/serving/recommender/` | 추천용 반경 쿼리·프롬프트·LLM 클라이언트                  |
+| `app/ingestion/` | 공공 API·네이버 수집, 지오코딩, `run_collection` / `run_trend_collection` |
+| `app/ingestion/analyzer/` | 형태소·트렌드 집계 (수집 경로 전용)                        |
+| `app/platform/cache/`     | Redis 트렌드 저장/조회                                          |
+| `app/platform/core/`      | 설정(`pydantic-settings`), 비동기 DB, API Key 검증              |
+| `app/platform/models/`    | ORM 모델(로그 등)                                               |
+| `app/platform/schemas/`   | Pydantic 응답 스키마                                            |
+| `app/platform/scheduler/` | APScheduler 잡 정의                                             |
 | `migrations/`    | SQL 초기화·스키마 변경                                          |
 | `tests/`         | API·수집기·분석기 테스트                                        |
 
@@ -87,12 +90,13 @@ HTTP 클라이언트·재시도 등 공통은 [`app/collector/client.py`](../app
 
 ## 트렌드 카테고리
 
-[`app/collector/naver.py`](../app/collector/naver.py)의 `CATEGORY_KEYWORDS`와 동일해야 합니다: `supplies`, `snack`, `food`, `grooming`, `hospital`, `clothes`.
+[`app/ingestion/naver.py`](../app/ingestion/naver.py)의 `CATEGORY_KEYWORDS`와 동일해야 합니다: `supplies`, `snack`, `food`, `grooming`, `hospital`, `clothes`.
 
 ---
 
 ## 설계·계획 문서 (참고용)
 
+- [`GROOMING-RECOMMEND-MVP.md`](GROOMING-RECOMMEND-MVP.md) — **그루밍 MVP(공공+블로그 언급+Kakao) 구현 전 리스크·Petory 계약**
 - [`superpowers/specs/2026-04-19-pet-data-api-design.md`](superpowers/specs/2026-04-19-pet-data-api-design.md) — 초기 설계 맥락
 - [`superpowers/specs/2026-04-21-pet-trend-pipeline-design.md`](superpowers/specs/2026-04-21-pet-trend-pipeline-design.md) — 트렌드 파이프라인
 - [`superpowers/specs/2026-05-01-petory-category-recommendation-redesign.md`](superpowers/specs/2026-05-01-petory-category-recommendation-redesign.md) — Petory 카테고리 추천 재설계안
@@ -104,6 +108,5 @@ HTTP 클라이언트·재시도 등 공통은 [`app/collector/client.py`](../app
 ## 진행 상황을 코드로 읽는 법
 
 - **마이그레이션 파일 목록**과 `git log`로 스키마 변천을 추적할 수 있습니다.
-- **`phases/index.json`**은 현재 비어 있으며, 단계 관리용 자리 표시자로 두었을 수 있습니다. 실행·배포 절차는 본 문서와 `USAGE.md`를 따르면 됩니다.
 
 문제가 나면 **`DATABASE_URL`**, **해시·서비스키·네이버 키**, **Redis 가용성**, **`psql`로 `pet_facilities` 등 테이블 존재**를 순서대로 확인하는 것이 빠릅니다.

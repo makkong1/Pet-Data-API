@@ -1,7 +1,7 @@
 import hashlib
 import pytest
 from fastapi import HTTPException
-from app.core.auth import hash_key, verify_key, require_api_key, require_admin_key
+from app.platform.core.auth import hash_key, verify_key, require_api_key, require_admin_key
 
 
 def test_hash_key_is_sha256():

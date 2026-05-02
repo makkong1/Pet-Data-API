@@ -63,14 +63,17 @@ python3 -c "import secrets,hashlib; k=secrets.token_hex(32); print(k, hashlib.sh
 ```
 pet-data-api/
 ├── app/
-│   ├── api/          # facilities, stats, collect, trends
-│   ├── collector/    # 공공 API, 네이버, runner
-│   ├── analyzer/     # 형태소·키워드 집계
-│   ├── cache/        # Redis
-│   ├── scheduler/
-│   ├── models/
-│   ├── schemas/
-│   ├── core/
+│   ├── ingestion/
+│   │   └── analyzer/
+│   ├── serving/
+│   │   ├── api/
+│   │   └── recommender/
+│   ├── platform/
+│   │   ├── core/
+│   │   ├── models/
+│   │   ├── schemas/
+│   │   ├── cache/
+│   │   └── scheduler/
 │   └── main.py
 ├── migrations/
 └── tests/
@@ -82,7 +85,7 @@ pet-data-api/
 - **시설 목록**: Keyset(cursor). `WHERE id > :cursor ORDER BY id LIMIT n`.
 - **통계**: `pet_facilities` 집계 쿼리(`GET /stats/summary`).
 - **트렌드**: 스케줄에서 네이버 수집 → 형태소 집계 → Redis; API는 Redis 조회.
-- **수집**: httpx 재시도, 소스별 `collection_logs`. 공통 클라이언트는 `app/collector/client.py`.
+- **수집**: httpx 재시도, 소스별 `collection_logs`. 공통 클라이언트는 `app/ingestion/client.py`.
 - **스케줄**: `max_instances=1`로 중복 방지.
 
 ## API 엔드포인트 (요약)

@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from app.collector.hospital import parse_hospital_item, extract_hospitals, fetch_all_hospitals
+from app.ingestion.hospital import parse_hospital_item, extract_hospitals, fetch_all_hospitals
 
 
 def test_parse_hospital_item_maps_fields():
@@ -82,7 +82,7 @@ async def test_fetch_all_hospitals_collects_multiple_pages():
         }
     }
 
-    with patch("app.collector.hospital.fetch_hospitals", new=AsyncMock(side_effect=[page1, page2])) as mocked:
+    with patch("app.ingestion.hospital.fetch_hospitals", new=AsyncMock(side_effect=[page1, page2])) as mocked:
         rows = await fetch_all_hospitals(num_of_rows=2)
 
     assert len(rows) == 3

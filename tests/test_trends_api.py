@@ -11,8 +11,8 @@ HEADERS = {"X-API-Key": API_KEY}
 
 @pytest.fixture(autouse=True)
 def patch_api_key(monkeypatch):
-    monkeypatch.setattr("app.core.config.settings.API_KEY_HASH", API_KEY_HASH)
-    monkeypatch.setattr("app.core.config.settings.ADMIN_API_KEY_HASH", "different_hash")
+    monkeypatch.setattr("app.platform.core.config.settings.API_KEY_HASH", API_KEY_HASH)
+    monkeypatch.setattr("app.platform.core.config.settings.ADMIN_API_KEY_HASH", "different_hash")
 
 
 @pytest.mark.asyncio
@@ -20,8 +20,8 @@ async def test_get_trends_success():
     mock_keywords = [("오리젠", 10.0), ("로얄캐닌", 7.0)]
     mock_updated = "2026-04-21T03:05:00+00:00"
 
-    with patch("app.api.trends.get_trend", new=AsyncMock(return_value=mock_keywords)), \
-         patch("app.api.trends.get_updated_at", new=AsyncMock(return_value=mock_updated)):
+    with patch("app.serving.api.trends.get_trend", new=AsyncMock(return_value=mock_keywords)), \
+         patch("app.serving.api.trends.get_updated_at", new=AsyncMock(return_value=mock_updated)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             response = await ac.get("/trends/snack", headers=HEADERS)
 
@@ -41,8 +41,8 @@ async def test_get_trends_unknown_category():
 
 @pytest.mark.asyncio
 async def test_get_trends_no_data_returns_503():
-    with patch("app.api.trends.get_trend", new=AsyncMock(return_value=[])), \
-         patch("app.api.trends.get_updated_at", new=AsyncMock(return_value=None)):
+    with patch("app.serving.api.trends.get_trend", new=AsyncMock(return_value=[])), \
+         patch("app.serving.api.trends.get_updated_at", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             response = await ac.get("/trends/snack", headers=HEADERS)
     assert response.status_code == 503
@@ -58,8 +58,8 @@ async def test_get_trends_requires_auth():
 @pytest.mark.asyncio
 async def test_get_trends_limit_param():
     mock_keywords = [("오리젠", 10.0)]
-    with patch("app.api.trends.get_trend", new=AsyncMock(return_value=mock_keywords)), \
-         patch("app.api.trends.get_updated_at", new=AsyncMock(return_value="2026-04-21T03:05:00+00:00")):
+    with patch("app.serving.api.trends.get_trend", new=AsyncMock(return_value=mock_keywords)), \
+         patch("app.serving.api.trends.get_updated_at", new=AsyncMock(return_value="2026-04-21T03:05:00+00:00")):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             response = await ac.get("/trends/snack?limit=5", headers=HEADERS)
     assert response.status_code == 200

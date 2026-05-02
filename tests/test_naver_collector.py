@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch
-from app.collector.naver import search_naver_blog, collect_category_trends, CATEGORY_KEYWORDS
+from app.ingestion.naver import search_naver_blog, collect_category_trends, CATEGORY_KEYWORDS
 
 
 @pytest.mark.asyncio
@@ -11,7 +11,7 @@ async def test_search_naver_blog_returns_items():
             {"title": "고양이 간식 후기", "description": "퍼스트메이트 정보"},
         ]
     }
-    with patch("app.collector.naver.fetch_public_api", new=AsyncMock(return_value=mock_response)):
+    with patch("app.ingestion.naver.fetch_public_api", new=AsyncMock(return_value=mock_response)):
         items = await search_naver_blog("강아지 간식 추천")
 
     assert len(items) == 2
@@ -21,7 +21,7 @@ async def test_search_naver_blog_returns_items():
 @pytest.mark.asyncio
 async def test_collect_category_trends_merges_queries():
     mock_items = [{"title": "test", "description": "desc"}]
-    with patch("app.collector.naver.search_naver_blog", return_value=mock_items):
+    with patch("app.ingestion.naver.search_naver_blog", return_value=mock_items):
         result = await collect_category_trends("snack")
 
     queries = CATEGORY_KEYWORDS["snack"]

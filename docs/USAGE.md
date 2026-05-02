@@ -1,6 +1,6 @@
 # pet-data-api 사용 가이드
 
-이 문서는 레포지토리 **현재 코드**(`app/main.py`, 라우터, 마이그레이션)를 기준으로 정리했습니다. 전체 개요·아키텍처는 [`PROJECT-OVERVIEW.md`](PROJECT-OVERVIEW.md), 에이전트용 요약은 루트 [`CLAUDE.md`](../CLAUDE.md)를 보세요.
+이 문서는 레포지토리 **현재 코드**(`app/main.py`, 라우터, 마이그레이션)를 기준으로 정리했습니다. 전체 개요·아키텍처는 [`PROJECT-OVERVIEW.md`](PROJECT-OVERVIEW.md), **수집 vs API 읽기 흐름**은 [`DATA-AND-API-FLOW.md`](DATA-AND-API-FLOW.md), 에이전트용 요약은 루트 [`CLAUDE.md`](../CLAUDE.md)를 보세요.
 
 ## 이 프로젝트가 하는 일
 
@@ -138,7 +138,7 @@ curl -s -X POST -H "X-API-Key: $ADMIN_KEY" \
 
 - **매일 18:00**: 네이버 블로그 트렌드 수집·Redis 갱신(`daily_trend_collection`).
 - **매일 18:05**: 공공데이터 수집(`daily_collection`).
-- 모두 `app/scheduler/jobs.py`에서 `max_instances=1`.
+- 모두 `app/platform/scheduler/jobs.py`에서 `max_instances=1`.
 - 별도 타임존 설정이 없으면 **프로세스가 돌아가는 머신의 로컬 시간** 기준입니다. 서버 배포 시 운영체제/ZONE 설정을 맞추세요.
 
 ## 테스트
@@ -152,14 +152,15 @@ pytest tests/ -v
 | 경로 | 역할 |
 |------|------|
 | `app/main.py` | FastAPI 앱, 라우터 등록, lifespan에서 스케줄러 시작/종료 |
-| `app/api/facilities.py` | 시설 목록·상세 |
-| `app/api/stats.py` | 요약 통계 |
-| `app/api/collect.py` | 수집 트리거 |
-| `app/api/trends.py` | 트렌드 키워드 조회 |
-| `app/collector/` | 공공 API·네이버 수집, `run_collection` / `run_trend_collection` |
-| `app/analyzer/` | 형태소·키워드 집계 |
-| `app/cache/` | Redis 트렌드 캐시 |
-| `app/core/` | 설정, DB 세션, 인증 |
+| `app/serving/api/facilities.py` | 시설 목록·상세 |
+| `app/serving/api/stats.py` | 요약 통계 |
+| `app/serving/api/collect.py` | 수집 트리거 |
+| `app/serving/api/trends.py` | 트렌드 키워드 조회 |
+| `app/serving/api/recommend.py` | Petory 연동 추천 |
+| `app/ingestion/` | 공공 API·네이버 수집, runner, 지오코더 |
+| `app/ingestion/analyzer/` | 형태소·키워드 집계 (수집 경로) |
+| `app/platform/cache/` | Redis 트렌드 캐시 |
+| `app/platform/core/` | 설정, DB 세션, 인증 |
 | `migrations/` | SQL 초기화 스크립트 |
 
 ---

@@ -1,5 +1,5 @@
-from app.models.facility import PetFacility
-from app.models.details import BusinessDetail, HospitalDetail
+from app.platform.models.facility import PetFacility
+from app.platform.models.details import BusinessDetail, HospitalDetail
 
 
 def test_pet_facility_tablename():

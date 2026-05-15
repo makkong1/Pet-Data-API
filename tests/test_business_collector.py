@@ -36,6 +36,28 @@ def test_parse_business_item_missing_phone():
     assert result["status"] == "영업"
 
 
+def test_extract_businesses_accepts_result_code_zero():
+    ok = {
+        "response": {
+            "header": {"resultCode": 0, "resultMsg": "정상"},
+            "body": {
+                "totalCount": 1,
+                "items": {
+                    "item": {
+                        "MNG_NO": "B1",
+                        "BPLC_NM": "A",
+                        "SALS_STTS_NM": "영업/정상",
+                        "ROAD_NM_ADDR": "서울 강남구 1",
+                    }
+                },
+            },
+        }
+    }
+    rows = extract_businesses(ok)
+    assert len(rows) == 1
+    assert rows[0]["source_id"] == "B1"
+
+
 def test_extract_businesses_raises_on_api_error():
     bad_response = {
         "response": {

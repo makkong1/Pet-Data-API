@@ -264,13 +264,13 @@ LLM은 타임아웃·서킷 브레이커를 두고 SLA에서 분리 측정한다
 
 한 번의 `POST /recommend`(그루밍·플래그 on)마다 **`[req_id]`**(짧은 hex)로 같은 요청의 단계를 묶을 수 있다. 로거/메시지 접두:
 
-| 접두 | 모듈 | 내용 |
-|------|------|------|
-| `grooming_pipe` | `app.serving.api.recommend` | 시작·공공 DB 건수·단계별 ms·요약·응답 크기 |
-| `grooming_blog` | `app.ingestion.grooming_blog` | 네이버 블로그 스텝 시작/종료(아이템 수·유니크 후보·소요 ms) |
-| `kakao_place` | `app.ingestion.kakao` | 후보 수·**cache_hit / cache_miss / http_ok / http_err**·소요 ms |
-| `grooming_ranker` | `app.serving.recommender.grooming_ranker` | 병합 후 후보 수·dedupe 후·출력 `source` 분포 |
-| `grooming_copy` | `app.serving.recommender.builder` | 규칙 문구 vs 트렌드 폴백 |
+| 접두              | 모듈                                      | 내용                                                            |
+| ----------------- | ----------------------------------------- | --------------------------------------------------------------- |
+| `grooming_pipe`   | `app.serving.api.recommend`               | 시작·공공 DB 건수·단계별 ms·요약·응답 크기                      |
+| `grooming_blog`   | `app.ingestion.grooming_blog`             | 네이버 블로그 스텝 시작/종료(아이템 수·유니크 후보·소요 ms)     |
+| `kakao_place`     | `app.ingestion.kakao`                     | 후보 수·**cache_hit / cache_miss / http_ok / http_err**·소요 ms |
+| `grooming_ranker` | `app.serving.recommender.grooming_ranker` | 병합 후 후보 수·dedupe 후·출력 `source` 분포                    |
+| `grooming_copy`   | `app.serving.recommender.builder`         | 규칙 문구 vs 트렌드 폴백                                        |
 
 원문 스니펫·전체 페이로드는 로그에 넣지 않는다 (§2.7).
 

@@ -13,10 +13,8 @@ CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "clothes":  ["강아지 옷 추천", "반려동물 의류"],
 }
 
-
 def _strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text)
-
 
 async def search_naver_blog(query: str, display: int = 100) -> list[dict]:
     headers = {
@@ -35,7 +33,6 @@ async def search_naver_blog(query: str, display: int = 100) -> list[dict]:
         }
         for i in items
     ]
-
 
 async def collect_category_trends(category: str) -> list[dict]:
     queries = CATEGORY_KEYWORDS.get(category, [])

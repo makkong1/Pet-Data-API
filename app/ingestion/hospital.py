@@ -3,7 +3,7 @@ from app.platform.core.config import settings
 from app.ingestion.client import fetch_public_api
 
 HOSPITAL_API_URL = "https://apis.data.go.kr/1741000/animal_hospitals/info"
-SUCCESS_RESULT_CODE = "00"
+SUCCESS_RESULT_CODES = frozenset({"00", "0"})
 
 
 def _parse_region(addr: str):
@@ -34,8 +34,8 @@ def _extract_total_count(response: dict):
 
 def _validate_response_or_raise(response: dict) -> None:
     header = response.get("response", {}).get("header", {})
-    result_code = str(header.get("resultCode", SUCCESS_RESULT_CODE)).strip()
-    if result_code and result_code != SUCCESS_RESULT_CODE:
+    result_code = str(header.get("resultCode", "00")).strip()
+    if result_code and result_code not in SUCCESS_RESULT_CODES:
         result_msg = header.get("resultMsg", "Unknown error")
         raise RuntimeError(f"Hospital API error ({result_code}): {result_msg}")
 

@@ -8,6 +8,7 @@ from app.ingestion.hospital import fetch_all_hospitals
 from app.ingestion.geocoder import geocode_address
 from app.ingestion.naver import collect_category_trends, CATEGORY_KEYWORDS
 from app.ingestion.analyzer.trend import aggregate_keywords
+from app.ingestion.trend_history import persist_trend_snapshot
 from app.platform.cache.redis import save_trend
 from app.platform.models.log import CollectionLog
 
@@ -159,12 +160,26 @@ async def run_trend_collection() -> list[dict]:
         try:
             items = await collect_category_trends(category)
             counts = aggregate_keywords(items)
-            await save_trend(category, dict(counts))
-            results.append({
+            counts_dict = dict(counts)
+            await save_trend(category, counts_dict)
+
+            # Postgres 시계열 적재. 실패해도 Redis 적재는 살아 있으므로 카테고리는 success 유지.
+            snapshot_rows = 0
+            snapshot_error: str | None = None
+            try:
+                snapshot_rows = await persist_trend_snapshot(category, counts_dict)
+            except Exception as snap_err:
+                snapshot_error = str(snap_err)
+
+            entry = {
                 "category": category,
                 "status": "success",
-                "keywords_count": len(counts),
-            })
+                "keywords_count": len(counts_dict),
+                "snapshot_rows": snapshot_rows,
+            }
+            if snapshot_error:
+                entry["snapshot_error"] = snapshot_error
+            results.append(entry)
         except Exception as e:
             results.append({
                 "category": category,

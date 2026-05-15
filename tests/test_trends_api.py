@@ -63,3 +63,31 @@ async def test_get_trends_limit_param():
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             response = await ac.get("/trends/snack?limit=5", headers=HEADERS)
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_trend_timeseries_unknown_category():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.get("/trends/unknown_cat/timeseries", headers=HEADERS)
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_trend_timeseries_returns_points():
+    mock_points = [
+        {"date": "2026-05-10", "keyword": "오리젠", "score": 8},
+        {"date": "2026-05-13", "keyword": "오리젠", "score": 10},
+    ]
+    with patch(
+        "app.serving.api.trends.fetch_trend_timeseries",
+        new=AsyncMock(return_value=mock_points),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.get("/trends/snack/timeseries?days=7&top_keywords=5", headers=HEADERS)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["category"] == "snack"
+    assert data["days"] == 7
+    assert data["top_keywords"] == 5
+    assert data["points"] == mock_points

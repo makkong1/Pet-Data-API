@@ -38,10 +38,20 @@ pip install -r requirements.txt
    ```bash
    psql -U postgres -d petdata -f migrations/init.sql
    psql -U postgres -d petdata -f migrations/v2_pet_facilities.sql
+   psql -U postgres -d petdata -f migrations/add_facility_coords.sql
+   psql -U postgres -d petdata -f migrations/003_trend_snapshots.sql
+   psql -U postgres -d petdata -f migrations/004_facility_tags.sql
+   psql -U postgres -d petdata -f migrations/005_recommendation_log.sql
+   psql -U postgres -d petdata -f migrations/006_facility_interactions.sql
    ```
 
    - `init.sql`: 확장·기본 객체.
-   - `v2_pet_facilities.sql`: 현재 API가 사용하는 **`pet_facilities`**, `business_details`, `hospital_details` 테이블.
+   - `v2_pet_facilities.sql`: **`pet_facilities`**, `business_details`, `hospital_details` 테이블.
+   - `add_facility_coords.sql`: `pet_facilities.lat/lng` 컬럼.
+   - `003_trend_snapshots.sql`: 트렌드 일별 시계열 (Postgres 보존, Redis 는 핫 캐시).
+   - `004_facility_tags.sql`: 시설 태그 (검색 깊이 보조).
+   - `005_recommendation_log.sql`: 추천 호출 기록 (request_id 단위).
+   - `006_facility_interactions.sql`: Petory 콜백 노출/클릭/예약 이벤트.
 
 ## 환경 변수 (`.env`)
 
@@ -94,11 +104,61 @@ X-API-Key: <발급해 둔 평문 API 키>
 
 | 메서드 | 경로 | 설명 | 인증 |
 |--------|------|------|------|
+| GET | `/healthz` | Liveness probe | 없음 |
+| GET | `/readyz` | Readiness probe (DB + Redis ping) | 없음 |
+| GET | `/metrics` | Prometheus 메트릭 | 없음 |
 | GET | `/facilities` | 시설 목록 (cursor 페이지네이션, 필터) | 일반/관리자 |
+| GET | `/facilities/search` | 시설 검색 (이름·태그·지역·반경, 정렬 distance/trend/name) | 일반/관리자 |
 | GET | `/facilities/{facility_id}` | 시설 상세 (`BUSINESS`/`HOSPITAL`에 따라 `details` 포함) | 일반/관리자 |
 | GET | `/stats/summary` | 시도·시군구·유형별 건수 (`영업` 상태만 집계) | 일반/관리자 |
 | GET | `/trends/{category}` | 카테고리별 인기 키워드 (Redis; `supplies`·`snack`·`food`·`grooming`·`hospital`·`clothes`) | 일반/관리자 |
+| GET | `/trends/{category}/timeseries` | 카테고리 시계열 (Postgres `trend_snapshots`, days 기본 14) | 일반/관리자 |
+| POST | `/recommend` | 맞춤 추천 (기본 `include_copy=false`, p95 < 500ms) | 일반/관리자 |
+| POST | `/recommend/copy` | LLM 추천 카피만 별도 호출 (실패 시 규칙 기반 폴백) | 일반/관리자 |
+| POST | `/events/recommendation` | Petory 노출/클릭/예약 콜백 (202 fire-and-forget) | 일반/관리자 |
 | POST | `/collect/trigger` | 수동 수집 (`scope=facilities|trends|all`) | **관리자만** |
+
+### Phase 0+ — 신규 엔드포인트 사용 예시
+
+```bash
+# 검색 — 강아지 키워드 + 서울 마포구 + 반경 3km, 거리순
+curl -s -G \
+  -H "X-API-Key: $API_KEY" \
+  --data-urlencode "q=강아지" \
+  --data-urlencode "region_city=서울특별시" \
+  --data-urlencode "region_district=마포구" \
+  --data-urlencode "lat=37.5665" --data-urlencode "lng=126.9780" \
+  --data-urlencode "radius_km=3" \
+  --data-urlencode "sort=distance" \
+  "http://localhost:8000/facilities/search"
+
+# 트렌드 시계열 (최근 14일)
+curl -s -H "X-API-Key: $API_KEY" \
+  "http://localhost:8000/trends/grooming/timeseries?days=14&top_keywords=5"
+
+# 추천 (기본 빠른 경로, LLM 없음)
+curl -s -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"lat":37.5665,"lng":126.9780,"context":"grooming","radius_km":3,"top_n":5,
+       "pet":{"type":"dog","breed":"말티즈","age":"2살"}}' \
+  "http://localhost:8000/recommend"
+
+# 추천 카피만 두 번째 콜로 받기 (위 응답의 request_id·facilities 사용)
+curl -s -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"context":"grooming","request_id":"<위의 request_id>",
+       "facilities":[{"name":"해피독 미용실","distance_m":320}],
+       "trends":[{"keyword":"스포팅컷","score":41}],
+       "pet":{"type":"dog","breed":"말티즈","age":"2살"}}' \
+  "http://localhost:8000/recommend/copy"
+
+# Petory 콜백 이벤트
+curl -s -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
+  -d '{"request_id":"<recommend 응답의 request_id>",
+       "events":[
+         {"facility_id":42,"event":"view","occurred_at":"2026-05-13T10:00:00Z"},
+         {"facility_id":42,"event":"click","occurred_at":"2026-05-13T10:00:08Z"}
+       ]}' \
+  "http://localhost:8000/events/recommendation"
+```
 
 ### 목록 쿼리 예시 (`/facilities`)
 

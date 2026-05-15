@@ -27,6 +27,9 @@ VALID_PAYLOAD = {
     "pet": {"type": "dog", "breed": "말티즈", "age": "2살"},
 }
 
+# Phase 3: /recommend 기본 include_copy=false. LLM 경로를 테스트하는 케이스는 명시적으로 true 사용.
+LLM_PAYLOAD = {**VALID_PAYLOAD, "include_copy": True}
+
 
 @pytest.fixture(autouse=True)
 def patch_api_key(monkeypatch):
@@ -35,7 +38,8 @@ def patch_api_key(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_recommend_success(grooming_legacy_pipe):
+async def test_recommend_success_with_llm_opt_in(grooming_legacy_pipe):
+    """include_copy=True 일 때만 LLM 경로 사용."""
     mock_facilities = [{"name": "해피독", "distance_m": 320, "address": "서울"}]
     mock_trends = [("스포팅컷", 41.0), ("여름컷", 35.0)]
     mock_reco = "말티즈에게는 스포팅컷이 인기입니다."
@@ -44,7 +48,7 @@ async def test_recommend_success(grooming_legacy_pipe):
          patch("app.serving.api.recommend.get_trend", new=AsyncMock(return_value=mock_trends)), \
          patch("app.serving.api.recommend.generate_recommendation", new=AsyncMock(return_value=mock_reco)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            response = await ac.post("/recommend", json=VALID_PAYLOAD, headers=HEADERS)
+            response = await ac.post("/recommend", json=LLM_PAYLOAD, headers=HEADERS)
 
     assert response.status_code == 200
     data = response.json()
@@ -55,14 +59,34 @@ async def test_recommend_success(grooming_legacy_pipe):
 
 
 @pytest.mark.asyncio
-async def test_recommend_ollama_down_still_returns_data(grooming_legacy_pipe):
+async def test_recommend_default_skips_llm(grooming_legacy_pipe):
+    """include_copy=False 기본 동작: LLM 호출 없이 규칙 기반 카피만."""
+    mock_facilities = [{"name": "해피독", "distance_m": 320, "address": "서울"}]
+
+    with patch("app.serving.api.recommend.get_nearby_facilities", new=AsyncMock(return_value=mock_facilities)), \
+         patch("app.serving.api.recommend.get_trend", new=AsyncMock(return_value=[])), \
+         patch("app.serving.api.recommend.generate_recommendation", new=AsyncMock(return_value="forbidden")) as mock_llm:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.post("/recommend", json=VALID_PAYLOAD, headers=HEADERS)
+
+    assert response.status_code == 200
+    mock_llm.assert_not_called()
+    data = response.json()
+    assert data["recommendation"] is not None
+    assert "forbidden" not in (data["recommendation"] or "")
+    assert "해피독" in data["recommendation"]
+
+
+@pytest.mark.asyncio
+async def test_recommend_ollama_down_with_opt_in_returns_none(grooming_legacy_pipe):
+    """include_copy=True 인데 LLM 다운이면 recommendation=None, 시설은 정상 반환."""
     mock_facilities = [{"name": "해피독", "distance_m": 320, "address": "서울"}]
 
     with patch("app.serving.api.recommend.get_nearby_facilities", new=AsyncMock(return_value=mock_facilities)), \
          patch("app.serving.api.recommend.get_trend", new=AsyncMock(return_value=[])), \
          patch("app.serving.api.recommend.generate_recommendation", new=AsyncMock(return_value=None)):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            response = await ac.post("/recommend", json=VALID_PAYLOAD, headers=HEADERS)
+            response = await ac.post("/recommend", json=LLM_PAYLOAD, headers=HEADERS)
 
     assert response.status_code == 200
     data = response.json()
@@ -271,6 +295,62 @@ async def test_grooming_mvp_blog_failure_fallback(monkeypatch):
     data = response.json()
     assert data["recommend_version"] == "grooming-mvp-v1"
     assert data["facilities"][0]["mention_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_recommend_copy_returns_llm_text():
+    """LLM 정상 동작 시 source=llm 으로 카피 반환."""
+    payload = {
+        "context": "grooming",
+        "request_id": "req-abc",
+        "facilities": [{"name": "해피독", "distance_m": 320}],
+        "trends": [{"keyword": "스포팅컷", "score": 41}],
+        "pet": {"type": "dog"},
+    }
+    with patch(
+        "app.serving.api.recommend.generate_recommendation",
+        new=AsyncMock(return_value="말티즈에게는 스포팅컷이 인기입니다."),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.post("/recommend/copy", json=payload, headers=HEADERS)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source"] == "llm"
+    assert data["request_id"] == "req-abc"
+    assert "스포팅컷" in data["recommendation"]
+
+
+@pytest.mark.asyncio
+async def test_recommend_copy_falls_back_to_rule_when_llm_down():
+    """LLM 다운 시 source=rule 로 폴백, recommendation 은 채워짐."""
+    payload = {
+        "context": "grooming",
+        "facilities": [{"name": "해피독", "distance_m": 320}],
+        "trends": [],
+    }
+    with patch(
+        "app.serving.api.recommend.generate_recommendation",
+        new=AsyncMock(return_value=None),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            response = await ac.post("/recommend/copy", json=payload, headers=HEADERS)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source"] == "rule"
+    assert "해피독" in (data["recommendation"] or "")
+
+
+@pytest.mark.asyncio
+async def test_recommend_copy_returns_null_when_nothing_to_say():
+    payload = {"context": "grooming", "facilities": [], "trends": []}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        response = await ac.post("/recommend/copy", json=payload, headers=HEADERS)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["recommendation"] is None
+    assert data["source"] == "rule"
 
 
 @pytest.mark.asyncio

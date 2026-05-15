@@ -103,11 +103,16 @@ KoNLPy 대신 kiwipiepy. Java 런타임 불필요, NNG(일반명사)·NNP(고유
 
 | 메서드 | 경로 | 설명 | 인증 |
 |--------|------|------|------|
-| POST | `/recommend` | 위치·컨텍스트·펫 정보 기반 **AI 추천 + 주변 시설 + 트렌드** | 일반 |
+| GET | `/healthz` / `/readyz` / `/metrics` | 헬스체크·Prometheus 메트릭 | 없음 |
+| POST | `/recommend` | 위치·컨텍스트·펫 기반 추천 (기본 `include_copy=false`, p95 < 500ms 목표) | 일반 |
+| POST | `/recommend/copy` | LLM 카피만 별도 호출 (실패 시 규칙 기반 폴백) | 일반 |
 | GET | `/facilities` | 시설 목록 (cursor 페이지네이션, 타입·지역 필터) | 일반 |
+| GET | `/facilities/search` | 시설 검색 (이름 pg_trgm·태그·지역·반경, sort=distance/trend/name) | 일반 |
 | GET | `/facilities/{id}` | 시설 상세 + 업종별 세부정보 | 일반 |
 | GET | `/stats/summary` | 영업 중 시설 지역·타입별 통계 | 일반 |
-| GET | `/trends/{category}` | 카테고리별 인기 키워드 Top N | 일반 |
+| GET | `/trends/{category}` | 카테고리별 인기 키워드 Top N (Redis) | 일반 |
+| GET | `/trends/{category}/timeseries` | 카테고리 일별 시계열 (Postgres, 기본 14일) | 일반 |
+| POST | `/events/recommendation` | Petory 노출/클릭/예약 콜백 (202) | 일반 |
 | POST | `/collect/trigger` | 수동 수집 트리거 (`scope=facilities|trends|all`) | 관리자 |
 
 ### 컨텍스트 정의
@@ -150,36 +155,50 @@ KoNLPy 대신 kiwipiepy. Java 런타임 불필요, NNG(일반명사)·NNP(고유
 | `radius_km` | float | 선택 | 기본 `3`, `0.5~20` |
 | `top_n` | int | 선택 | 기본 `5`, `1~20` |
 | `pet` | object | 선택 | `type`, `breed`, `age` (자유 형식) |
+| `include_copy` | bool | 선택 | 기본 `false`. `true` 면 Ollama 호출까지 동기 대기. |
 
 **응답**
 
 ```json
 {
   "context": "grooming",
+  "recommend_version": "legacy",
+  "request_id": "9f1c8b2a4d70a01b",
   "facilities": [
     {
       "name": "해피독 미용실",
       "distance_m": 320,
       "address": "서울시 마포구 ...",
       "lat": 37.5672,
-      "lng": 126.9765
+      "lng": 126.9765,
+      "mention_count": 3,
+      "mention_score": 0.6,
+      "source": "public",
+      "score": 0.78,
+      "reasons": ["distance", "trend_match:스포팅컷"]
     }
   ],
   "trends": [
     { "keyword": "스포팅컷", "score": 41 },
     { "keyword": "여름컷",   "score": 35 }
   ],
-  "recommendation": "말티즈에게는 요즘 스포팅컷이 인기입니다. 근처 해피독 미용실이 320m 거리로 가장 가깝고...",
+  "recommendation": "근처 1개 미용실 후보를 찾았습니다. 가장 가까운 해피독 미용실까지 320m입니다.",
   "generated_at": "2026-04-21T10:00:00+00:00"
 }
 ```
 
+- `request_id` 는 `X-Request-Id` 헤더와 동일. 같은 값으로 `POST /events/recommendation` 를 호출하면 노출→클릭 매핑이 가능.
+- `recommendation` 은 기본 `include_copy=false` 일 때 **규칙 기반 카피**. LLM 카피가 필요하면 `include_copy=true` 또는 별도 `POST /recommend/copy`.
+- `reasons` 는 랭킹에 기여한 신호 라벨 (예: `distance`, `mention`, `trend_match:<키워드>`, `history`, `pet_breed_match`).
+
 **동작 규칙**
 
-- 반경 내 시설이 없고 트렌드만 있으면 **LLM 없이** Redis(네이버 집계) 키워드만으로 짧은 안내 문구 생성(가짜 업장명 방지)
-- 반경 내 시설이 있으면 **LLM**으로 보조 문장 생성(프롬프트상 목록 밖 상호 금지)
-- Redis 장애 → `trends: []` 로 graceful degradation
-- Ollama 장애·타임아웃 → `recommendation: null` (시설·트렌드는 항상 반환)
+- 기본 `include_copy=false` — LLM 호출 없이 규칙 기반 카피로 응답 (p95 < 500ms 목표).
+- `include_copy=true` → 기존처럼 Ollama 호출. 실패 시 `recommendation: null` (시설·트렌드는 항상 반환).
+- **카피 분리**: 응답시간을 짧게 가져가고 싶으면 `/recommend` 는 기본값으로 호출하고, 카피가 필요한 페이지에서만 `POST /recommend/copy` 를 두 번째 콜로 비동기 호출 (실패 시 `source="rule"` 폴백).
+- 반경 내 시설이 없고 트렌드만 있으면 Redis(네이버 집계) 키워드만으로 짧은 안내 문구 생성(가짜 업장명 방지).
+- Redis 장애 → `trends: []` 로 graceful degradation.
+- 각 응답에 `request_id` 가 포함되며, `POST /events/recommendation` 으로 같은 `request_id` 의 노출/클릭/예약 이벤트를 회신해 다음 추천에 환류.
 
 ### 응답 예시 — `GET /trends/snack?limit=5`
 
@@ -226,12 +245,57 @@ pet-data-api (FastAPI)
 # application.properties
 pet-data-api.base-url=http://pet-data-api:8000
 pet-data-api.api-key=${PET_DATA_API_KEY}
-pet-data-api.timeout-ms=35000
+# 본 추천 호출 (LLM 없음). 짧은 타임아웃 OK.
+pet-data-api.timeout-ms=3000
+# 카피만 두 번째 콜로. Ollama 응답 대기 때문에 길게.
+pet-data-api.copy-timeout-ms=35000
 ```
 
 - API Key는 **원문**을 Petory 쪽에 보관, pet-data-api 에는 **SHA-256 해시**만 저장.
-- Ollama 응답 대기 때문에 타임아웃은 **30초 이상** 권장.
+- 기본 `POST /recommend` 는 LLM 을 부르지 않으므로 짧은 타임아웃(3초)으로 충분.
+- 카피가 필요한 페이지에서만 두 번째 콜 `POST /recommend/copy` 로 받기 — `request_id` 를 같이 보내면 로그가 연결됨.
 - `recommendation` 이 `null` 이면 프론트에서는 카드 숨기고 시설·트렌드만 표시하는 폴백 UI 권장.
+
+### 두 번째 콜 (선택): LLM 카피
+
+```http
+POST /recommend/copy
+{
+  "context": "grooming",
+  "request_id": "<위 응답의 request_id>",
+  "facilities": [{"name": "해피독 미용실", "distance_m": 320}],
+  "trends": [{"keyword": "스포팅컷", "score": 41}],
+  "pet": {"type": "dog", "breed": "말티즈", "age": "2살"}
+}
+```
+
+응답:
+
+```json
+{
+  "request_id": "abc123",
+  "recommendation": "말티즈에게 인기인 스포팅컷이 요즘 트렌드입니다. 해피독 미용실이 320m로 가깝습니다.",
+  "source": "llm",
+  "generated_at": "2026-05-13T10:00:01+00:00"
+}
+```
+
+LLM 다운 시 `source="rule"` 로 폴백되며 `recommendation` 은 항상 비어 있지 않을 수 있습니다.
+
+### 노출/클릭 콜백 (선택)
+
+```http
+POST /events/recommendation
+{
+  "request_id": "<recommend 응답의 request_id>",
+  "events": [
+    {"facility_id": 42, "event": "view",  "occurred_at": "2026-05-13T10:00:00Z"},
+    {"facility_id": 42, "event": "click", "occurred_at": "2026-05-13T10:00:08Z"}
+  ]
+}
+```
+
+`facility_interactions` 에 적재되고, 14일치 클릭 수가 다음 추천 `history` 신호에 반영됩니다.
 
 ### 장애 격리
 
@@ -359,6 +423,8 @@ pet-data-api/
 
 ## 관련 문서
 
+- [`docs/V3-CHANGES.md`](docs/V3-CHANGES.md) — **v3 변경 요약** (책임 분리·새 엔드포인트·랭커 일반화·LLM 분리)
+- [`docs/PETORY-INTEGRATION.md`](docs/PETORY-INTEGRATION.md) — **Petory ↔ pet-data-api 연동 체크리스트** (M0~M3)
 - [`docs/GROOMING-RECOMMEND-MVP.md`](docs/GROOMING-RECOMMEND-MVP.md) — 그루밍 추천 MVP(구현 전 리스크·Petory DTO)
 - [`docs/PROJECT-OVERVIEW.md`](docs/PROJECT-OVERVIEW.md) — 역할·경계·런타임/배치 동작 요약
 - [`docs/USAGE.md`](docs/USAGE.md) — 실제 `curl` 예시 포함 사용 가이드

@@ -19,6 +19,7 @@ VALID_CONTEXTS = set(CONTEXT_TO_FACILITY_TYPE.keys()) | set(LEGACY_CONTEXT_ALIAS
 _HAVERSINE_SQL = """
 WITH distances AS (
     SELECT
+        id,
         source_id,
         name,
         address,
@@ -35,7 +36,7 @@ WITH distances AS (
     WHERE lat IS NOT NULL
       AND type = :ftype
 )
-SELECT source_id, name, address, lat, lng, distance_m
+SELECT id, source_id, name, address, lat, lng, distance_m
 FROM distances
 WHERE distance_m <= :radius_m
 ORDER BY distance_m
@@ -73,6 +74,7 @@ async def get_nearby_facilities(
     rows = result.mappings().all()
     return [
         {
+            "facility_id": r.get("id"),
             "source_id": r["source_id"],
             "name": r["name"],
             "distance_m": int(r["distance_m"]),

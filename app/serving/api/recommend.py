@@ -2,15 +2,22 @@
 
 import logging
 import time
-import uuid
 from collections import defaultdict
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.platform.core.config import settings
 from app.platform.core.database import get_db
 from app.platform.core.auth import require_api_key
-from app.platform.schemas.recommend import RecommendRequest, RecommendResponse, FacilityItem, TrendKeyword
+from app.platform.observability import get_request_id
+from app.platform.schemas.recommend import (
+    FacilityItem,
+    RecommendCopyRequest,
+    RecommendCopyResponse,
+    RecommendRequest,
+    RecommendResponse,
+    TrendKeyword,
+)
 from app.serving.recommender.facilities import get_nearby_facilities, VALID_CONTEXTS, normalize_context
 from app.serving.recommender.builder import build_prompt, build_trend_only_copy, build_context_copy
 from app.serving.recommender.llm import generate_recommendation
@@ -18,6 +25,9 @@ from app.platform.cache.redis import get_trend
 from app.ingestion.grooming_blog import extract_grooming_mentions, extract_context_mentions
 from app.ingestion.kakao import search_kakao_places
 from app.serving.recommender.grooming_ranker import rank_grooming_facilities
+from app.serving.recommender.persistence import persist_recommendation_log
+from app.serving.recommender.ranker import rank_facilities
+from app.serving.recommender.signals.base import SignalContext
 
 router = APIRouter(prefix="/recommend", tags=["추천 (Recommend)"])
 ENRICHED_CONTEXTS = {"grooming", "hospital", "supplies"}
@@ -59,6 +69,7 @@ async def _load_trends_for_context(context: str, limit: int = 10) -> list[tuple[
 )
 async def recommend(
     req: RecommendRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _: None = Depends(require_api_key),
 ):
@@ -68,6 +79,7 @@ async def recommend(
             detail=f"Unknown context: {req.context}. Valid: {sorted(VALID_CONTEXTS)}",
         )
 
+    request_id = get_request_id(request)
     normalized_context = normalize_context(req.context)
     trends_raw = await _load_trends_for_context(req.context, 10)
     trends = [TrendKeyword(keyword=k, score=int(s)) for k, s in trends_raw]
@@ -79,7 +91,7 @@ async def recommend(
         recommend_version = f"{normalized_context}-mvp-v1"
         radius_m = req.radius_km * 1000
         t_full = time.monotonic()
-        req_id = uuid.uuid4().hex[:10]
+        req_id = request_id
         _log.info(
             "context_pipe [%s] start context=%s lat=%.5f lng=%.5f radius_km=%s top_n=%s",
             req_id,
@@ -145,18 +157,30 @@ async def recommend(
         kakao_ms = int((time.monotonic() - t_kakao) * 1000)
         kakao_call_count = len(kakao_map)
 
-        # 랭킹 & dedupe
+        # 1차 dedupe·merge (공공 + Kakao + 멘션) — 후보를 넉넉히 유지.
         t_rank = time.monotonic()
-        facilities_raw = rank_grooming_facilities(
+        merged = rank_grooming_facilities(
             public_raw,
             kakao_map,
             mention_map,
             req.lat,
             req.lng,
             radius_m,
-            req.top_n,
+            req.top_n * 4,
             req_id=req_id,
         )
+        # 2차 일반화 랭커 (신호 5종 가중합).
+        signal_ctx = SignalContext(
+            user_lat=req.lat,
+            user_lng=req.lng,
+            radius_m=radius_m,
+            context=normalized_context,
+            pet=req.pet.model_dump() if req.pet else None,
+            db=db,
+            trend_keywords={k: int(s) for k, s in trends_raw},
+            request_id=req_id,
+        )
+        facilities_raw = await rank_facilities(merged, signal_ctx, top_n=req.top_n)
         rank_ms = int((time.monotonic() - t_rank) * 1000)
         total_ms = int((time.monotonic() - t_full) * 1000)
 
@@ -175,7 +199,21 @@ async def recommend(
             rank_ms,
         )
 
-        facilities = [FacilityItem(**{k: v for k, v in f.items()}) for f in facilities_raw]
+        facilities = [
+            FacilityItem(
+                name=f["name"],
+                distance_m=f["distance_m"],
+                address=f["address"],
+                lat=f.get("lat"),
+                lng=f.get("lng"),
+                mention_count=int(f.get("mention_count") or 0),
+                mention_score=float(f.get("mention_score") or 0.0),
+                source=f.get("source", "public"),
+                score=float(f.get("score") or 0.0),
+                reasons=list(f.get("reasons") or []),
+            )
+            for f in facilities_raw
+        ]
         recommendation = build_context_copy(normalized_context, facilities_raw, trends_raw, req_id=req_id)
         _log.info(
             "context_pipe [%s] response context=%s facilities=%d recommend_len=%s",
@@ -190,22 +228,57 @@ async def recommend(
         public_raw = await get_nearby_facilities(
             db, req.lat, req.lng, normalized_context, req.radius_km, req.top_n
         )
-        # source_id는 FacilityItem 스키마에 없으므로 제거
-        facilities_raw = [{k: v for k, v in f.items() if k != "source_id"} for f in public_raw]
+        # facility_id·source_id 는 FacilityItem 에 노출하지 않음.
+        facilities_raw = [
+            {k: v for k, v in f.items() if k not in ("source_id", "facility_id")}
+            for f in public_raw
+        ]
         facilities = [FacilityItem(**f) for f in facilities_raw]
 
         if not facilities_raw and not trends_raw:
             recommendation = None
-        elif not facilities_raw and trends_raw:
-            recommendation = build_trend_only_copy(normalized_context, trends_raw) or None
+        elif req.include_copy:
+            # 옵트인 LLM 경로 (기존 동작).
+            if not facilities_raw and trends_raw:
+                recommendation = build_trend_only_copy(normalized_context, trends_raw) or None
+            else:
+                pet_dict = req.pet.model_dump() if req.pet else None
+                prompt = build_prompt(
+                    normalized_context, facilities_raw,
+                    [t.model_dump() for t in trends], pet_dict,
+                )
+                recommendation = await generate_recommendation(prompt)
         else:
-            pet_dict = req.pet.model_dump() if req.pet else None
-            prompt = build_prompt(normalized_context, facilities_raw, [t.model_dump() for t in trends], pet_dict)
-            recommendation = await generate_recommendation(prompt)
+            # 기본: 규칙 기반 카피만 (LLM 없음, p95 짧음).
+            if not facilities_raw and trends_raw:
+                recommendation = build_trend_only_copy(normalized_context, trends_raw) or None
+            else:
+                recommendation = build_context_copy(
+                    normalized_context, facilities_raw, trends_raw, req_id=request_id,
+                )
+
+    # recommendation_log 적재 (실패해도 응답엔 영향 없음).
+    await persist_recommendation_log(
+        db,
+        request_id=request_id,
+        context=req.context,
+        lat=req.lat,
+        lng=req.lng,
+        radius_km=req.radius_km,
+        top_n=req.top_n,
+        pet_payload=req.pet.model_dump() if req.pet else None,
+        facility_ids=[
+            (f.get("facility_id") if isinstance(f, dict) else None)
+            for f in (facilities_raw if recommend_version != "legacy" else public_raw)
+        ],
+        facility_scores=[float(getattr(f, "score", 0.0)) for f in facilities],
+        recommend_version=recommend_version,
+    )
 
     response = RecommendResponse(
         context=req.context,
         recommend_version=recommend_version,
+        request_id=request_id,
         facilities=facilities,
         trends=trends,
         recommendation=recommendation,
@@ -213,3 +286,59 @@ async def recommend(
     )
     _log.info("recommend response: %s", response.model_dump_json())
     return response
+
+
+@router.post(
+    "/copy",
+    response_model=RecommendCopyResponse,
+    summary="추천 카피만 별도 (LLM only)",
+    description=(
+        "POST /recommend 응답을 기반으로 LLM 추천 카피를 받는 보조 엔드포인트. "
+        "본 추천 응답시간을 짧게 유지하기 위해 카피는 두 번째 콜로 비동기 수신하세요. "
+        "LLM 다운/타임아웃 시 규칙 기반 카피로 폴백 (source='rule')."
+    ),
+)
+async def recommend_copy(
+    req: RecommendCopyRequest,
+    request: Request,
+    _: None = Depends(require_api_key),
+) -> RecommendCopyResponse:
+    request_id = req.request_id or get_request_id(request)
+    normalized_context = normalize_context(req.context)
+
+    facilities_dict = [
+        {"name": f.name, "distance_m": int(f.distance_m or 0), "address": ""}
+        for f in req.facilities
+    ]
+    trends_dict = [{"keyword": t.keyword, "score": int(t.score)} for t in req.trends]
+    trends_tuples = [(t.keyword, int(t.score)) for t in req.trends]
+    pet_dict = req.pet.model_dump() if req.pet else None
+
+    if not facilities_dict and not trends_tuples:
+        return RecommendCopyResponse(
+            request_id=request_id,
+            recommendation=None,
+            source="rule",
+            generated_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    prompt = build_prompt(normalized_context, facilities_dict, trends_dict, pet_dict)
+    recommendation = await generate_recommendation(prompt)
+    source = "llm"
+
+    if recommendation is None:
+        # LLM 실패 시 규칙 기반 폴백.
+        source = "rule"
+        if facilities_dict:
+            recommendation = build_context_copy(
+                normalized_context, facilities_dict, trends_tuples, req_id=request_id,
+            )
+        else:
+            recommendation = build_trend_only_copy(normalized_context, trends_tuples) or None
+
+    return RecommendCopyResponse(
+        request_id=request_id,
+        recommendation=recommendation,
+        source=source,
+        generated_at=datetime.now(timezone.utc).isoformat(),
+    )

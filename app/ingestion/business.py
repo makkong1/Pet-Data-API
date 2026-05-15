@@ -4,7 +4,8 @@ from app.platform.core.config import settings
 from app.ingestion.client import fetch_public_api
 
 BUSINESS_API_URL = "https://apis.data.go.kr/1741000/pet_grooming/info"
-SUCCESS_RESULT_CODE = "00"
+# 일부 행안부 응답은 성공 시 "00", 다른 엔드포인트/버전은 0 과 "정상"을 준다.
+SUCCESS_RESULT_CODES = frozenset({"00", "0"})
 
 def _parse_region(addr: str):
     parts = addr.split()
@@ -31,8 +32,8 @@ def _extract_total_count(response: dict) -> Optional[int]:
 
 def _validate_response_or_raise(response: dict) -> None:
     header = response.get("response", {}).get("header", {})
-    result_code = str(header.get("resultCode", SUCCESS_RESULT_CODE)).strip()
-    if result_code and result_code != SUCCESS_RESULT_CODE:
+    result_code = str(header.get("resultCode", "00")).strip()
+    if result_code and result_code not in SUCCESS_RESULT_CODES:
         result_msg = header.get("resultMsg", "Unknown error")
         raise RuntimeError(f"Business API error ({result_code}): {result_msg}")
 

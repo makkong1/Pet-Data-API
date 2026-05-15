@@ -96,6 +96,8 @@ HTTP 클라이언트·재시도 등 공통은 [`app/ingestion/client.py`](../app
 
 ## 설계·계획 문서 (참고용)
 
+- [`V3-CHANGES.md`](V3-CHANGES.md) — **v3 변경 요약 (검색·시계열·이벤트·LLM 분리, 신규 엔드포인트·테이블·랭커)**
+- [`PETORY-INTEGRATION.md`](PETORY-INTEGRATION.md) — **Petory 측 단계별 연동 체크리스트 (M0~M3)**
 - [`GROOMING-RECOMMEND-MVP.md`](GROOMING-RECOMMEND-MVP.md) — **그루밍 MVP(공공+블로그 언급+Kakao) 구현 전 리스크·Petory 계약**
 - [`superpowers/specs/2026-04-19-pet-data-api-design.md`](superpowers/specs/2026-04-19-pet-data-api-design.md) — 초기 설계 맥락
 - [`superpowers/specs/2026-04-21-pet-trend-pipeline-design.md`](superpowers/specs/2026-04-21-pet-trend-pipeline-design.md) — 트렌드 파이프라인

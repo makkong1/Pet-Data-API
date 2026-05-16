@@ -6,6 +6,12 @@ CONTEXT_TO_FACILITY_TYPE: dict[str, Optional[str]] = {
     "grooming": "BUSINESS",
     "hospital": "HOSPITAL",
     "supplies": "BUSINESS",
+    "pharmacy": "BUSINESS",
+    "cafe": "BUSINESS",
+    "pension": "BUSINESS",
+    "restaurant": "BUSINESS",
+    "boarding": "BUSINESS",
+    "hotel": "BUSINESS",
 }
 
 LEGACY_CONTEXT_ALIASES: dict[str, str] = {

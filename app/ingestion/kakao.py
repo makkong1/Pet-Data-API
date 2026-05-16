@@ -20,15 +20,27 @@ _CONTEXT_ALIASES = {
     "clothes": "supplies",
 }
 _QUERY_SUFFIXES = {
-    "grooming": "애견미용",
-    "hospital": "동물병원",
-    "supplies": "반려동물용품",
+    "grooming":   "애견미용",
+    "hospital":   "동물병원",
+    "supplies":   "반려동물용품",
+    "pharmacy":   "동물약국",
+    "cafe":       "반려동물카페",
+    "pension":    "반려동물펜션",
+    "restaurant": "반려동물동반식당",
+    "boarding":   "반려동물위탁관리",
+    "hotel":      "반려동물호텔",
 }
 _COMMON_HINTS = ("애견", "반려", "펫", "애완", "강아지", "고양이")
 _CONTEXT_HINTS = {
-    "grooming": ("미용", "그루밍"),
-    "hospital": ("병원", "동물", "진료"),
-    "supplies": ("용품", "사료", "간식"),
+    "grooming":   ("미용", "그루밍"),
+    "hospital":   ("병원", "동물", "진료"),
+    "supplies":   ("용품", "사료", "간식"),
+    "pharmacy":   ("약국",),
+    "cafe":       ("카페",),
+    "pension":    ("펜션",),
+    "restaurant": ("식당", "레스토랑"),
+    "boarding":   ("위탁", "호텔링"),
+    "hotel":      ("호텔",),
 }
 
 _log = logging.getLogger(__name__)

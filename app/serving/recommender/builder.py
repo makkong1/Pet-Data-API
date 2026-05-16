@@ -8,6 +8,12 @@ CONTEXT_LABELS: dict[str, str] = {
     "snack": "간식",
     "food": "사료",
     "clothes": "의류",
+    "pharmacy": "동물약국",
+    "cafe": "반려동물카페",
+    "pension": "반려동물펜션",
+    "restaurant": "반려동물동반식당",
+    "boarding": "위탁관리업체",
+    "hotel": "반려동물호텔",
 }
 
 _log = logging.getLogger(__name__)

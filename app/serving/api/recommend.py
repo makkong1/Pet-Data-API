@@ -30,7 +30,7 @@ from app.serving.recommender.ranker import rank_facilities
 from app.serving.recommender.signals.base import SignalContext
 
 router = APIRouter(prefix="/recommend", tags=["추천 (Recommend)"])
-ENRICHED_CONTEXTS = {"grooming", "hospital", "supplies"}
+ENRICHED_CONTEXTS = {"grooming", "hospital", "supplies", "pharmacy", "cafe", "pension", "restaurant", "boarding", "hotel"}
 
 _log = logging.getLogger(__name__)
 if not _log.handlers:

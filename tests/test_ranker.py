@@ -10,7 +10,11 @@ from app.serving.recommender.ranker import (
 from app.serving.recommender.signals.base import SignalContext
 from app.serving.recommender.signals.distance import DistanceSignal
 from app.serving.recommender.signals.mention import MentionSignal
-from app.serving.recommender.signals.pet_match import PetMatchSignal, _is_senior
+from app.serving.recommender.signals.pet_match import (
+    PetMatchSignal,
+    _is_senior,
+    _is_senior_from_months,
+)
 from app.serving.recommender.signals.trend_match import TrendMatchSignal
 
 
@@ -53,6 +57,23 @@ async def test_trend_match_signal_matches_keyword_in_name():
 
 
 @pytest.mark.asyncio
+async def test_pet_match_hospital_senior_bonus_from_age_months():
+    sig = PetMatchSignal()
+    ctx = SignalContext(
+        user_lat=0, user_lng=0, radius_m=1000, context="hospital",
+        pet={"type": "dog", "breed": None, "age_months": 130},
+    )
+    scores = await sig.score(
+        [
+            {"name": "동네 일반 동물병원", "facility_id": None},
+            {"name": "노령 케어 동물병원", "facility_id": None},
+        ],
+        ctx,
+    )
+    assert scores[1] > scores[0]
+
+
+@pytest.mark.asyncio
 async def test_pet_match_species_token():
     sig = PetMatchSignal()
     ctx = SignalContext(
@@ -74,6 +95,13 @@ def test_is_senior_threshold():
     assert _is_senior("3세") is False
     assert _is_senior("senior care") is True
     assert _is_senior("") is False
+
+
+def test_is_senior_from_months_threshold():
+    assert _is_senior_from_months(119) is False
+    assert _is_senior_from_months(120) is True
+    assert _is_senior_from_months(None) is False
+    assert _is_senior_from_months("x") is False
 
 
 def test_weight_presets_sum_to_one():

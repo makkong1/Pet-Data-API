@@ -2,7 +2,7 @@
 
 진짜 학습 모델이 아니라 데이터·서비스 신호가 모이기 전 가벼운 휴리스틱.
 - 펫 species 키워드가 시설명·태그에 포함되면 가산.
-- 노령(>=10살 키워드) 펫 + 컨텍스트=hospital 이면 가산 (병원이 노령 케어를 광고하면).
+- 노령(>=10살 문자열 패턴 또는 age_months≥120) 펫 + 컨텍스트=hospital 이면 가산.
 - 펫 정보 없으면 모두 0.
 """
 
@@ -23,6 +23,16 @@ _SPECIES_TOKENS: dict[str, list[str]] = {
 }
 
 _SENIOR_PATTERN = re.compile(r"(\d+)\s*살|(\d+)\s*세|senior", re.IGNORECASE)
+
+
+def _is_senior_from_months(age_months: object) -> bool:
+    """Petory 등이 보내는 정수 월 단위 연령. 약 10세 ≈ 120개월."""
+    if age_months is None:
+        return False
+    try:
+        return int(age_months) >= 120
+    except (TypeError, ValueError):
+        return False
 
 
 def _is_senior(age_text: str) -> bool:
@@ -72,8 +82,9 @@ class PetMatchSignal:
 
         species = (ctx.pet.get("type") or "").lower()
         breed = (ctx.pet.get("breed") or "").lower()
-        age = ctx.pet.get("age") or ""
-        senior = _is_senior(age)
+        age_raw = ctx.pet.get("age")
+        age = "" if age_raw is None else str(age_raw)
+        senior = _is_senior_from_months(ctx.pet.get("age_months")) or _is_senior(age)
         species_tokens = _SPECIES_TOKENS.get(species, [])
 
         facility_ids = [

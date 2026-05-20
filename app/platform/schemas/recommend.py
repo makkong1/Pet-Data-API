@@ -6,6 +6,14 @@ class PetInfo(BaseModel):
     type: str = Field(..., description="반려 종류 (Pet species: dog | cat | etc)")
     breed: Optional[str] = Field(None, description="품종 (Breed)")
     age: Optional[str] = Field(None, description="나이 표현 (Age, free text e.g. 3살)")
+    age_months: Optional[int] = Field(
+        None,
+        ge=0,
+        description=(
+            "나이(개월 수). Petory 등에서 숫자로 보냄 — "
+            "랭커 신호에서는 약 10세(≥120개월)를 노령으로 본다 (age 문자열과 병행 가능)."
+        ),
+    )
 
 
 class RecommendRequest(BaseModel):

@@ -6,407 +6,269 @@
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-llama3-000000)
 
-> 공공데이터 + 네이버 블로그 트렌드 + Ollama LLM 기반 반려동물 추천·시설·트렌드 REST API
+공공데이터(시설) + 네이버 블로그 트렌드 + 위치 기반 추천 + 이벤트 환류를 제공하는 FastAPI 백엔드.
+
+이 문서는 **현재 코드 기준**으로 작성되었습니다.
+
+- 앱 엔트리: `app/main.py`
+- 핵심 추천 API: `app/serving/api/recommend.py`
+- 수집 런너: `app/ingestion/runner.py`
 
 ---
 
-## 프로젝트 소개
+## 1) 프로젝트 개요
 
-반려동물 생활 정보를 **세 가지 신호**로 엮어 한 번에 제공하는 Python 백엔드입니다.
+이 프로젝트는 세 가지를 결합합니다.
 
-- **공공데이터 (행안부)** — 전국 동물미용업·동물병원 공식 등록 정보를 수집해 `pet_facilities` 테이블에 적재. 주소는 **Kakao 로컬 API**로 지오코딩해 `lat/lng` 컬럼에 저장.
-- **네이버 블로그 API + 형태소 분석(kiwipiepy)** — 카테고리별 검색 스니펫에서 키워드 빈도만 집계해 Redis에 짧은 TTL로 둠(원문 DB 미보관). **상용 시 네이버 검색 API 이용약관·한도 확인 필수.**
-- **Ollama llama3 (로컬 LLM)** — 사용자의 GPS·반려동물 정보·반경 내 공인 시설·트렌드 키워드를 묶어 한 문단 추천을 생성.
+1. 공공 API 시설 수집
+- data.go.kr 영업장/동물병원 데이터를 수집해 PostgreSQL `pet_facilities`에 upsert
+- 좌표가 비어 있으면 Kakao 주소 지오코딩으로 `lat/lng` 보강
 
-Java/Spring 기반 [Petory](https://github.com/makkong1/Petory)에서 **`POST /recommend`를 호출**해 현재 페이지 맥락(`grooming` / `hospital` / `supplies`)에 맞는 주변 시설·트렌드·AI 추천을 받아오는 용도로 설계됐습니다.  
-레거시 호환용으로 `snack` / `food` / `clothes`도 허용하며 내부적으로 `supplies`로 처리합니다.
+2. 트렌드 수집/캐시
+- Naver Blog Search 결과를 형태소 분석(kiwipiepy)하여 카테고리 키워드 빈도 집계
+- Redis Sorted Set(`trends:{category}:keywords`) 캐시 + Postgres `trend_snapshots` 시계열 저장
 
----
-
-## 기술 스택
-
-| 역할 | 기술 | 선택 이유 |
-|------|------|-----------|
-| 웹 프레임워크 | FastAPI | async 네이티브, 자동 Swagger 생성 |
-| DB ORM | SQLAlchemy 2.0 (asyncpg) | async 쿼리, Mapped 타입 힌트 |
-| DB | PostgreSQL 15 | pg_trgm 한국어 퍼지 검색, Haversine 반경 쿼리 |
-| 캐시 | Redis 7 | Sorted Set으로 트렌드 키워드 순위 관리 |
-| 지오코딩 | Kakao Local API | 무료 티어, 한국 주소 정확도 높음 |
-| LLM | Ollama `llama3` | 로컬 실행, API 비용 없음 (교체 가능) |
-| 형태소 분석 | kiwipiepy | Java 불필요, pip 한 줄 설치 |
-| 스케줄러 | APScheduler | `max_instances=1` 로 중복 실행 방지 |
-| HTTP 클라이언트 | httpx | async + 지수 백오프 재시도 |
+3. 추천 서빙
+- `/recommend`: DB 반경 시설 + Redis 트렌드 + 규칙/LLM 카피를 결합
+- `/events/recommendation`: 노출/클릭/예약 이벤트를 적재해 다음 추천의 history 신호로 환류
 
 ---
 
-## 시스템 아키텍처
+## 2) 아키텍처 문서
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  수집 파이프라인 (매일 자동 실행, APScheduler)                │
-│                                                              │
-│  [행안부 공공API] ──► Collector ──► Kakao 지오코더 ──► Postgres│
-│        (시설 + 병원)            (주소→lat/lng)                │
-│                                                              │
-│  [네이버 블로그API] ──► Collector ──► kiwipiepy ──► Redis     │
-│                                 (형태소·빈도)                 │
-└──────────────────────────────────────────────────────────────┘
+상세 다이어그램/플로우는 아래 문서로 분리되어 있습니다.
 
-┌──────────────────────────────────────────────────────────────┐
-│  API 서빙 (FastAPI)                                          │
-│                                                              │
-│  Petory / Client                                             │
-│      │  X-API-Key                                            │
-│      ▼                                                       │
-│  POST /recommend ──► Postgres (Haversine 반경 쿼리)           │
-│                  └─► Redis    (카테고리 트렌드)               │
-│                  └─► Ollama   (시설+트렌드+펫 → 추천문)       │
-│                                                              │
-│  GET /facilities · /stats/summary · /trends/{category}        │
-└──────────────────────────────────────────────────────────────┘
-```
-
-**상세 흐름(배치 수집 vs 읽기 전용 API, Mermaid 다이어그램)** → [`docs/DATA-AND-API-FLOW.md`](docs/DATA-AND-API-FLOW.md)  
-**아키텍처 상세 문서(컴포넌트/런타임/폴백/확장 가이드)** → [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)  
-**수집 코드 vs 서빙 코드 폴더 맵** → [`docs/INGESTION-VS-SERVING.md`](docs/INGESTION-VS-SERVING.md)
+- [아키텍처 상세](docs/ARCHITECTURE.md)
+- [데이터 수집·저장·API 흐름](docs/DATA-AND-API-FLOW.md)
+- [Ingestion vs Serving 경계](docs/INGESTION-VS-SERVING.md)
+- [사용 가이드](docs/USAGE.md)
 
 ---
 
-## 핵심 기술 결정
+## 3) 기술 스택
 
-### Haversine 반경 검색 (PostgreSQL)
-`/recommend` 에서 사용자 좌표로부터 **반경 N km 이내**의 시설만 뽑기 위해 Haversine 공식을 **Pure SQL**로 계산합니다 (`6371000 * acos(...)`). PostGIS 없이도 동작하며, `lat IS NOT NULL` + `type` 필터와 함께 `ORDER BY distance_m LIMIT :top_n` 으로 상위만 반환합니다. 자세한 쿼리는 [`app/serving/recommender/facilities.py`](app/serving/recommender/facilities.py).
-
-### 좌표가 없는 시설 처리
-행안부 API 응답에 좌표가 없어 수집 직후 **Kakao 로컬 API**로 주소→`lat/lng` 을 보강합니다. 실패 시 `NULL` 로 두고, 반경 쿼리에서 자동 제외됩니다. 지오코더는 [`app/ingestion/geocoder.py`](app/ingestion/geocoder.py).
-
-### LLM 호출 가드
-주변 시설이 **한 건도 없으면** Ollama 호출 자체를 건너뛰고 `recommendation: null` 을 반환합니다. 시스템 프롬프트에도 "**제공된 시설 목록 외의 시설명은 절대 만들어내지 마**" 제약을 넣어 **환각 시설 생성**을 차단했습니다. 프롬프트/호출부는 [`app/serving/recommender/builder.py`](app/serving/recommender/builder.py), [`app/serving/recommender/llm.py`](app/serving/recommender/llm.py).
-
-### Keyset 페이지네이션
-`/facilities` 목록은 `LIMIT/OFFSET` 대신 `WHERE id > :cursor ORDER BY id LIMIT n`. 인덱스 탐색만으로 O(log n) 유지.
-
-### pg_trgm 한국어 퍼지 검색
-`LIKE '%검색어%'` 대신 GIN 인덱스 + `%` 유사도 연산자. 한국어 자모 trigram 인덱싱으로 오타·부분 일치 지원.
-
-### Redis Sorted Set 트렌드 캐싱
-`ZADD` 로 키워드 빈도 적재, `ZRANGE ... WITHSCORES` 로 상위 N개 조회. 매일 18:00에 갱신.
-
-### kiwipiepy 형태소 분석
-KoNLPy 대신 kiwipiepy. Java 런타임 불필요, NNG(일반명사)·NNP(고유명사)만 추출하고 불용어(추천, 후기 등)를 필터링.
+| 역할 | 기술 |
+|---|---|
+| API | FastAPI, Uvicorn |
+| DB | PostgreSQL, SQLAlchemy 2.0(async), asyncpg |
+| Cache | Redis (redis-py asyncio) |
+| 분석 | kiwipiepy |
+| 외부 호출 | httpx (재시도 포함) |
+| 스케줄 | APScheduler |
+| 랭킹 | 규칙 기반 신호 조합(distance/mention/trend/history/pet) |
+| LLM | Ollama (`/recommend/copy` 또는 `include_copy=true` 시) |
+| 관측성 | request-id middleware, `/healthz`, `/readyz`, `/metrics` |
 
 ---
 
-## API 명세
+## 4) 런타임 동작 핵심
 
-모든 엔드포인트는 `X-API-Key` 헤더 인증 필요. 상세는 Swagger UI (`/docs`) 에서 확인할 수 있습니다.
+### 4.1 요청 ID/헬스/메트릭
+
+`app/platform/observability.py`
+
+- 모든 요청에 `X-Request-Id` 부여 또는 에코
+- `GET /healthz`: liveness
+- `GET /readyz`: DB/Redis readiness
+- `GET /metrics`: Prometheus 메트릭 (instrumentator 사용 가능 시)
+
+### 4.2 스케줄
+
+`app/platform/scheduler/jobs.py`
+
+- 매일 `18:00`: `run_trend_collection()`
+- 매일 `18:05`: `run_collection(db)`
+- `max_instances=1`로 중복 실행 방지
+
+주의: 타임존 명시는 별도로 없어서 **프로세스 로컬 시각** 기준입니다.
+
+### 4.3 추천 파이프 분기
+
+`POST /recommend`는 `context`와 `GROOMING_MVP_ENABLED`에 따라 분기합니다.
+
+1. 확장 파이프 (feature flag ON + enriched context)
+- 컨텍스트: `grooming`, `hospital`, `supplies`, `pharmacy`, `cafe`, `pension`, `restaurant`, `boarding`, `hotel`
+- 단계: 공공 후보 조회 -> 블로그 멘션 후보 추출 -> Kakao 장소 보강 -> 병합/중복제거 -> 신호 랭킹
+- 카피: 규칙 기반(`build_context_copy`)
+- 버전: `{context}-mvp-v1`
+
+2. 레거시 파이프 (feature flag OFF 또는 비확장 컨텍스트)
+- 시설 없고 트렌드만 있으면 규칙 기반 카피
+- `include_copy=true`면 Ollama 호출
+- 버전: `legacy`
+
+`POST /recommend/copy`는 카피만 별도 호출하는 분리 엔드포인트입니다.
+
+---
+
+## 5) API 요약
+
+인증: 보호 엔드포인트는 `X-API-Key` 필요
+
+- 일반/관리자 키 모두 통과: `require_api_key`
+- 관리자 키만 통과: `require_admin_key` (`/collect/trigger`)
 
 | 메서드 | 경로 | 설명 | 인증 |
-|--------|------|------|------|
-| GET | `/healthz` / `/readyz` / `/metrics` | 헬스체크·Prometheus 메트릭 | 없음 |
-| POST | `/recommend` | 위치·컨텍스트·펫 기반 추천 (기본 `include_copy=false`, p95 < 500ms 목표) | 일반 |
-| POST | `/recommend/copy` | LLM 카피만 별도 호출 (실패 시 규칙 기반 폴백) | 일반 |
-| GET | `/facilities` | 시설 목록 (cursor 페이지네이션, 타입·지역 필터) | 일반 |
-| GET | `/facilities/search` | 시설 검색 (이름 pg_trgm·태그·지역·반경, sort=distance/trend/name) | 일반 |
-| GET | `/facilities/{id}` | 시설 상세 + 업종별 세부정보 | 일반 |
-| GET | `/stats/summary` | 영업 중 시설 지역·타입별 통계 | 일반 |
-| GET | `/trends/{category}` | 카테고리별 인기 키워드 Top N (Redis) | 일반 |
-| GET | `/trends/{category}/timeseries` | 카테고리 일별 시계열 (Postgres, 기본 14일) | 일반 |
-| POST | `/events/recommendation` | Petory 노출/클릭/예약 콜백 (202) | 일반 |
-| POST | `/collect/trigger` | 수동 수집 트리거 (`scope=facilities|trends|all`) | 관리자 |
+|---|---|---|---|
+| GET | `/healthz` | Liveness | 없음 |
+| GET | `/readyz` | DB/Redis readiness | 없음 |
+| GET | `/metrics` | Prometheus metrics | 없음 |
+| GET | `/facilities` | 시설 목록 (keyset cursor) | 일반 |
+| GET | `/facilities/{facility_id}` | 시설 상세 | 일반 |
+| GET | `/facilities/search` | 이름/태그/지역/반경 검색 | 일반 |
+| GET | `/stats/summary` | 영업중 시설 집계 | 일반 |
+| GET | `/trends/{category}` | Redis 트렌드 조회 | 일반 |
+| GET | `/trends/{category}/timeseries` | Postgres 트렌드 시계열 | 일반 |
+| POST | `/recommend` | 시설+트렌드+추천 응답 | 일반 |
+| POST | `/recommend/copy` | LLM 카피 전용 호출 | 일반 |
+| POST | `/events/recommendation` | 노출/클릭/예약 이벤트 적재 | 일반 |
+| POST | `/collect/trigger` | 수동 수집 (scope 분기) | 관리자 |
 
-### 컨텍스트 정의
-
-`/recommend` · `/trends/{category}` 공통 입력.
-
-| context | 의미 | 조회 시설 타입 | 트렌드 카테고리 |
-|---------|------|---------------|----------------|
-| `grooming` | 미용실 | `BUSINESS` | `grooming` |
-| `hospital` | 동물병원 | `HOSPITAL` | `hospital` |
-| `supplies` | 용품점 | `BUSINESS`(현재 데이터 기준) | `supplies` + (`snack`,`food`,`clothes`) |
-| `snack` / `food` / `clothes` | 레거시 호환 입력 | `supplies`로 내부 매핑 | `supplies`로 내부 매핑 |
-
-> `supplies`는 현재 공공데이터 수집 소스 제약으로 `BUSINESS` 시설을 활용하며, 용품점 전용 데이터 소스는 확장 예정입니다.
-
-### `POST /recommend`
-
-**요청**
-
-```json
-{
-  "lat": 37.5665,
-  "lng": 126.9780,
-  "context": "grooming",
-  "radius_km": 3,
-  "top_n": 5,
-  "pet": {
-    "type": "dog",
-    "breed": "말티즈",
-    "age": "2살"
-  }
-}
-```
-
-| 필드 | 타입 | 필수 | 기본/제약 |
-|------|------|------|-----------|
-| `lat` | float | 필수 | - |
-| `lng` | float | 필수 | - |
-| `context` | string | 필수 | `grooming` / `hospital` / `supplies` (legacy: `snack` / `food` / `clothes`) |
-| `radius_km` | float | 선택 | 기본 `3`, `0.5~20` |
-| `top_n` | int | 선택 | 기본 `5`, `1~20` |
-| `pet` | object | 선택 | `type`, `breed`, `age` (자유 형식) |
-| `include_copy` | bool | 선택 | 기본 `false`. `true` 면 Ollama 호출까지 동기 대기. |
-
-**응답**
-
-```json
-{
-  "context": "grooming",
-  "recommend_version": "legacy",
-  "request_id": "9f1c8b2a4d70a01b",
-  "facilities": [
-    {
-      "name": "해피독 미용실",
-      "distance_m": 320,
-      "address": "서울시 마포구 ...",
-      "lat": 37.5672,
-      "lng": 126.9765,
-      "mention_count": 3,
-      "mention_score": 0.6,
-      "source": "public",
-      "score": 0.78,
-      "reasons": ["distance", "trend_match:스포팅컷"]
-    }
-  ],
-  "trends": [
-    { "keyword": "스포팅컷", "score": 41 },
-    { "keyword": "여름컷",   "score": 35 }
-  ],
-  "recommendation": "근처 1개 미용실 후보를 찾았습니다. 가장 가까운 해피독 미용실까지 320m입니다.",
-  "generated_at": "2026-04-21T10:00:00+00:00"
-}
-```
-
-- `request_id` 는 `X-Request-Id` 헤더와 동일. 같은 값으로 `POST /events/recommendation` 를 호출하면 노출→클릭 매핑이 가능.
-- `recommendation` 은 기본 `include_copy=false` 일 때 **규칙 기반 카피**. LLM 카피가 필요하면 `include_copy=true` 또는 별도 `POST /recommend/copy`.
-- `reasons` 는 랭킹에 기여한 신호 라벨 (예: `distance`, `mention`, `trend_match:<키워드>`, `history`, `pet_breed_match`).
-
-**동작 규칙**
-
-- 기본 `include_copy=false` — LLM 호출 없이 규칙 기반 카피로 응답 (p95 < 500ms 목표).
-- `include_copy=true` → 기존처럼 Ollama 호출. 실패 시 `recommendation: null` (시설·트렌드는 항상 반환).
-- **카피 분리**: 응답시간을 짧게 가져가고 싶으면 `/recommend` 는 기본값으로 호출하고, 카피가 필요한 페이지에서만 `POST /recommend/copy` 를 두 번째 콜로 비동기 호출 (실패 시 `source="rule"` 폴백).
-- 반경 내 시설이 없고 트렌드만 있으면 Redis(네이버 집계) 키워드만으로 짧은 안내 문구 생성(가짜 업장명 방지).
-- Redis 장애 → `trends: []` 로 graceful degradation.
-- 각 응답에 `request_id` 가 포함되며, `POST /events/recommendation` 으로 같은 `request_id` 의 노출/클릭/예약 이벤트를 회신해 다음 추천에 환류.
-
-### 응답 예시 — `GET /trends/snack?limit=5`
-
-```json
-{
-  "category": "snack",
-  "updated_at": "2026-04-21T03:05:00+00:00",
-  "keywords": [
-    { "keyword": "오리젠",       "score": 42 },
-    { "keyword": "로얄캐닌",     "score": 38 },
-    { "keyword": "퍼스트메이트", "score": 31 }
-  ]
-}
-```
-
-Swagger UI: `http://localhost:8000/docs`
+Swagger: `http://localhost:8000/docs`
 
 ---
 
-## Petory 연동 가이드
+## 6) 컨텍스트/카테고리 규칙
 
-Petory(Java/Spring) 백엔드가 이 서버를 호출해 사용자 페이지에 **AI 추천 카드**를 렌더링합니다.
+### 6.1 추천 컨텍스트
 
-### 호출 흐름
+`app/serving/recommender/facilities.py`
 
-```
-Petory Front (React)
-  └─ GPS(lat/lng) + 현재 페이지(context) + 로그인한 펫 정보
-       │
-       ▼
-Petory Back (Spring) — PetDataApiClient
-  └─ POST http://pet-data-api:8000/recommend
-       Headers: X-API-Key: <일반 키>
-       Body:    { lat, lng, context, radius_km?, top_n?, pet? }
-       │
-       ▼
-pet-data-api (FastAPI)
-  └─ facilities + trends + recommendation JSON 반환
-```
+| 입력 context | 내부 매핑 | 시설 타입 |
+|---|---|---|
+| `grooming` | `grooming` | `BUSINESS` |
+| `hospital` | `hospital` | `HOSPITAL` |
+| `supplies` | `supplies` | `BUSINESS` |
+| `pharmacy`/`cafe`/`pension`/`restaurant`/`boarding`/`hotel` | 동일 | `BUSINESS` |
+| `snack`/`food`/`clothes` | `supplies` (alias) | `BUSINESS` |
 
-### Spring 쪽 설정 예시
+### 6.2 트렌드 카테고리
 
-```properties
-# application.properties
-pet-data-api.base-url=http://pet-data-api:8000
-pet-data-api.api-key=${PET_DATA_API_KEY}
-# 본 추천 호출 (LLM 없음). 짧은 타임아웃 OK.
-pet-data-api.timeout-ms=3000
-# 카피만 두 번째 콜로. Ollama 응답 대기 때문에 길게.
-pet-data-api.copy-timeout-ms=35000
-```
+`app/ingestion/naver.py`의 `CATEGORY_KEYWORDS` 기준:
 
-- API Key는 **원문**을 Petory 쪽에 보관, pet-data-api 에는 **SHA-256 해시**만 저장.
-- 기본 `POST /recommend` 는 LLM 을 부르지 않으므로 짧은 타임아웃(3초)으로 충분.
-- 카피가 필요한 페이지에서만 두 번째 콜 `POST /recommend/copy` 로 받기 — `request_id` 를 같이 보내면 로그가 연결됨.
-- `recommendation` 이 `null` 이면 프론트에서는 카드 숨기고 시설·트렌드만 표시하는 폴백 UI 권장.
-
-### 두 번째 콜 (선택): LLM 카피
-
-```http
-POST /recommend/copy
-{
-  "context": "grooming",
-  "request_id": "<위 응답의 request_id>",
-  "facilities": [{"name": "해피독 미용실", "distance_m": 320}],
-  "trends": [{"keyword": "스포팅컷", "score": 41}],
-  "pet": {"type": "dog", "breed": "말티즈", "age": "2살"}
-}
-```
-
-응답:
-
-```json
-{
-  "request_id": "abc123",
-  "recommendation": "말티즈에게 인기인 스포팅컷이 요즘 트렌드입니다. 해피독 미용실이 320m로 가깝습니다.",
-  "source": "llm",
-  "generated_at": "2026-05-13T10:00:01+00:00"
-}
-```
-
-LLM 다운 시 `source="rule"` 로 폴백되며 `recommendation` 은 항상 비어 있지 않을 수 있습니다.
-
-### 노출/클릭 콜백 (선택)
-
-```http
-POST /events/recommendation
-{
-  "request_id": "<recommend 응답의 request_id>",
-  "events": [
-    {"facility_id": 42, "event": "view",  "occurred_at": "2026-05-13T10:00:00Z"},
-    {"facility_id": 42, "event": "click", "occurred_at": "2026-05-13T10:00:08Z"}
-  ]
-}
-```
-
-`facility_interactions` 에 적재되고, 14일치 클릭 수가 다음 추천 `history` 신호에 반영됩니다.
-
-### 장애 격리
-
-| 상황 | pet-data-api 동작 | Petory 프론트 권장 |
-|------|------------------|-------------------|
-| Ollama 다운 | `recommendation: null` | 시설·트렌드만 카드에 표시 |
-| Redis 다운 | `trends: []` | 추천/시설만 표시 |
-| pet-data-api 다운 | 5xx/연결 실패 | try-catch → 추천 카드 숨김 |
+- `supplies`, `snack`, `food`, `grooming`, `hospital`, `clothes`
+- `pharmacy`, `cafe`, `pension`, `restaurant`, `boarding`, `hotel`
 
 ---
 
-## 실행 방법
+## 7) 실행 방법
 
-### 사전 준비
+### 7.1 사전 준비
 
 - Python 3.11+
 - PostgreSQL 15+
 - Redis 7+
-- [Ollama](https://ollama.com/) + `llama3` 모델 (`ollama pull llama3`)
-- [네이버 개발자센터](https://developers.naver.com) 블로그 검색 API 키
-- [Kakao Developers](https://developers.kakao.com) REST API 키 (지오코딩)
-- 공공데이터포털 서비스키 (영업장 · 동물병원)
+- Ollama + `llama3` 모델
+- 공공 API 키 2종 (`PUBLIC_DATA_API_KEY`, `HOSPITAL_API_KEY`)
+- Naver API 키 2종
+- Kakao REST API 키
 
-### 빠른 시작
+### 7.2 설치/실행
 
 ```bash
-# 1. 의존성 설치
-python -m venv venv && source venv/bin/activate
+python -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 
-# 2. DB 초기화
+cp .env.example .env
+# .env 값 채우기
+
+# DB 생성
 psql -U postgres -c "CREATE DATABASE petdata;"
+
+# 스키마 적용 (신규 설치 권장 순서)
 psql -U postgres -d petdata -f migrations/init.sql
 psql -U postgres -d petdata -f migrations/v2_pet_facilities.sql
 psql -U postgres -d petdata -f migrations/add_facility_coords.sql
+psql -U postgres -d petdata -f migrations/003_trend_snapshots.sql
+psql -U postgres -d petdata -f migrations/004_facility_tags.sql
+psql -U postgres -d petdata -f migrations/005_recommendation_log.sql
+psql -U postgres -d petdata -f migrations/006_facility_interactions.sql
 
-# 3. 환경변수 설정
-cp .env.example .env  # 값 직접 입력
+# (선택) 구 abandoned schema 정리
+# psql -U postgres -d petdata -f migrations/002_drop_abandoned_animals.sql
 
-# 4. Ollama 모델 준비 (최초 1회)
+# Ollama 모델 준비
 ollama pull llama3
 
-# 5. 서버 실행 (기본 포트 8000, 코드 변경 시 자동 재시작)
+# 서버 실행
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Python 서버만 다시 켤 때
+### 7.3 테스트
 
 ```bash
-cd pet-data-api
-source venv/bin/activate          # Windows: venv\Scripts\activate
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-가상환경 활성화 없이:
-
-```bash
-cd pet-data-api
-./venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-- API · Swagger: [http://localhost:8000/docs](http://localhost:8000/docs)
-- `Address already in use` → 기존 프로세스 종료 또는 `--port 8001` 등으로 변경
-
-### 테스트
-
-```bash
+source venv/bin/activate
 pytest tests/ -v
 ```
 
 ---
 
-## 환경변수
+## 8) 환경변수
 
-`.env` 파일에 설정 (`.env.example` 참고):
+`.env.example` 기준
 
-| 변수명 | 설명 |
-|--------|------|
-| `DATABASE_URL` | `postgresql+asyncpg://user:pass@host:5432/petdata` |
-| `API_KEY_HASH` | 일반 API Key의 SHA-256 해시 |
-| `ADMIN_API_KEY_HASH` | 관리자 API Key의 SHA-256 해시 |
-| `PUBLIC_DATA_API_KEY` | 행안부 공공데이터 영업장 서비스키 |
-| `HOSPITAL_API_KEY` | 동물병원 API 서비스키 |
-| `NAVER_CLIENT_ID` | 네이버 검색 API Client ID |
-| `NAVER_CLIENT_SECRET` | 네이버 검색 API Client Secret |
-| `KAKAO_REST_API_KEY` | Kakao 로컬 API(지오코딩) REST 키 |
-| `REDIS_URL` | 기본 `redis://localhost:6379/0` |
-| `OLLAMA_BASE_URL` | 기본 `http://localhost:11434` |
-| `OLLAMA_MODEL` | 기본 `llama3` |
+| 변수 | 설명 |
+|---|---|
+| `DATABASE_URL` | async SQLAlchemy URL |
+| `API_KEY_HASH` | 일반 API 키 SHA-256 |
+| `ADMIN_API_KEY_HASH` | 관리자 API 키 SHA-256 |
+| `PUBLIC_DATA_API_KEY` | data.go.kr 영업장 API 키 |
+| `HOSPITAL_API_KEY` | data.go.kr 병원 API 키 |
+| `NAVER_CLIENT_ID` | Naver API ID |
+| `NAVER_CLIENT_SECRET` | Naver API Secret |
+| `KAKAO_REST_API_KEY` | Kakao REST API Key |
+| `REDIS_URL` | Redis URL |
+| `GROOMING_MVP_ENABLED` | 확장 추천 파이프 ON/OFF |
+| `NAVER_TIMEOUT_MS` | Naver timeout(ms) |
+| `KAKAO_TIMEOUT_MS` | Kakao timeout(ms) |
+| `OLLAMA_BASE_URL` | Ollama base URL |
+| `OLLAMA_MODEL` | Ollama model |
 
-API Key 해시 생성:
+API 키 해시 생성:
 
 ```bash
 python3 -c "import secrets,hashlib; k=secrets.token_hex(32); print('KEY:', k); print('HASH:', hashlib.sha256(k.encode()).hexdigest())"
 ```
 
-출력된 `KEY` 값을 호출 측(Petory 등)에 저장하고, `HASH` 값을 서버 `.env` 에 넣습니다.
+---
+
+## 9) 추천 응답 구조 포인트
+
+`app/platform/schemas/recommend.py`
+
+- `request_id`: `X-Request-Id`와 동일 (로그/콜백 연결)
+- `facilities[].score`: 최종 점수(0~1)
+- `facilities[].mention_score`: 멘션 정규화 점수(0~1)
+- `facilities[].reasons`: 랭킹 기여 라벨
+- `recommend_version`: `legacy` 또는 `{context}-mvp-v1`
+- 요청 `pet`: `type`·`breed` 및 선택적으로 `age`(자유 문자열) 또는 **`age_months`(정수 개월)** — Petory 등은 주로 후자를 전송하며 랭커의 노령 휴리스틱과 정합 (`age_months≥120` ≈ 10살 문자열 패턴과 동급).
+
+`POST /recommend/copy` 응답은 `source=llm|rule`를 반환합니다.
 
 ---
 
-## 프로젝트 구조
+## 10) 데이터 환류(Feedback Loop)
 
-```
+1. 클라이언트가 `/recommend` 호출
+2. 응답의 `request_id`를 보관
+3. 노출/클릭/예약 이벤트를 `/events/recommendation`으로 송신
+4. 확장 파이프의 history 신호(`InteractionHistorySignal`)가 최근 14일 클릭 이력을 반영
+
+즉, 추천 -> 사용자 반응 -> 다음 추천 점수에 반영되는 폐루프가 존재합니다.
+
+---
+
+## 11) 디렉터리 구조
+
+```text
 pet-data-api/
 ├── app/
-│   ├── ingestion/        # 배치 수집 (핵심)
-│   │   └── analyzer/
-│   ├── serving/          # HTTP 서빙 (핵심)
+│   ├── ingestion/
+│   ├── serving/
 │   │   ├── api/
 │   │   └── recommender/
-│   ├── platform/         # 공용: 설정·DB·인증·ORM·스키마·Redis·스케줄러
+│   ├── platform/
 │   │   ├── core/
 │   │   ├── models/
 │   │   ├── schemas/
@@ -414,21 +276,13 @@ pet-data-api/
 │   │   └── scheduler/
 │   └── main.py
 ├── migrations/
-├── docs/
-├── scripts/              # 선택 도구 (예: batch_geocode.py)
-└── tests/
+├── tests/
+└── docs/
 ```
 
 ---
 
-## 관련 문서
+## 12) 라이선스/운영 주의
 
-- [`docs/V3-CHANGES.md`](docs/V3-CHANGES.md) — **v3 변경 요약** (책임 분리·새 엔드포인트·랭커 일반화·LLM 분리)
-- [`docs/PETORY-INTEGRATION.md`](docs/PETORY-INTEGRATION.md) — **Petory ↔ pet-data-api 연동 체크리스트** (M0~M3)
-- [`docs/GROOMING-RECOMMEND-MVP.md`](docs/GROOMING-RECOMMEND-MVP.md) — 그루밍 추천 MVP(구현 전 리스크·Petory DTO)
-- [`docs/PROJECT-OVERVIEW.md`](docs/PROJECT-OVERVIEW.md) — 역할·경계·런타임/배치 동작 요약
-- [`docs/USAGE.md`](docs/USAGE.md) — 실제 `curl` 예시 포함 사용 가이드
-- [`docs/superpowers/specs/2026-04-21-pet-recommendation-pipeline-design.md`](docs/superpowers/specs/2026-04-21-pet-recommendation-pipeline-design.md) — 추천 파이프라인 설계
-- [`docs/superpowers/specs/2026-04-21-pet-trend-pipeline-design.md`](docs/superpowers/specs/2026-04-21-pet-trend-pipeline-design.md) — 트렌드 파이프라인 설계
-- [`docs/superpowers/specs/2026-05-01-petory-category-recommendation-redesign.md`](docs/superpowers/specs/2026-05-01-petory-category-recommendation-redesign.md) — 카테고리 클릭형 추천 재설계안
-- [`docs/superpowers/plans/2026-05-02-phase1-refactor-log.md`](docs/superpowers/plans/2026-05-02-phase1-refactor-log.md) — 리팩토링 반영 로그
+- Naver/Kakao/data.go.kr 이용약관, 호출 한도, 저장 정책은 실제 운영 환경에서 별도 검토가 필요합니다.
+- 본 레포는 포트폴리오/학습 목적 구현이며, 운영 배포 전 보안/비용/장애복구 정책을 추가 점검해야 합니다.

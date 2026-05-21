@@ -1,3 +1,4 @@
+import logging
 import pytest
 from unittest.mock import AsyncMock, patch
 from app.ingestion.naver import search_naver_blog, collect_category_trends, CATEGORY_KEYWORDS
@@ -72,8 +73,6 @@ async def test_collect_category_trends_deduplicates_by_link():
 
 @pytest.mark.asyncio
 async def test_collect_category_trends_logs_warning_on_fetch_error(caplog):
-    import logging
-
     async def failing_search(query, display=100, sort="sim"):
         raise RuntimeError("network error")
 

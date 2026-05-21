@@ -14,6 +14,26 @@
 - 핵심 추천 API: `app/serving/api/recommend.py`
 - 수집 런너: `app/ingestion/runner.py`
 
+동일한 **요약 명령**은 포트폴리오/아키텍처 문서(`pet-data-api architecture.md` §9.2 빠른 시작)에도 적어 두었습니다.
+
+---
+
+## Quick start (실행 명령만)
+
+프로젝트 루트(이 README가 있는 디렉터리)에서 가상환경을 켠 뒤 Uvicorn으로 기동합니다. 상위 폴더에서만 내려올 때는 `cd pet-data-api` 한 뒤 아래와 같이 실행하면 됩니다.
+
+```bash
+python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+# .env · PostgreSQL · Redis 준비 후
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+- Swagger: `http://localhost:8000/docs`
+- DB 마이그레이션·환경변수·테스트까지 포함한 전체 절차는 아래 **§7 실행 방법** 참고.
+- 로컬에서 자주 띄울 때는 셸 alias로 한 줄로 줄일 수 있다. 예시(`~/.zshrc` 등, `<레포경로>`만 본인 환경에 맞게):  
+  `alias pet-api='cd <레포경로> && source venv/bin/activate && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000'`
+
 ---
 
 ## 1) 프로젝트 개요

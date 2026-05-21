@@ -42,7 +42,7 @@ async def fetch_businesses(page: int = 1, num_of_rows: int = 1000) -> dict:
     url = f"{BUSINESS_API_URL}?serviceKey={key}&pageNo={page}&numOfRows={num_of_rows}"
     return await fetch_public_api(url)
 
-async def fetch_all_businesses(num_of_rows: int = 1000, max_pages: int = 200) -> list[dict]:
+async def fetch_all_businesses(num_of_rows: int = 100, max_pages: int = 200) -> list[dict]:
     page = 1
     all_items: list[dict] = []
 
@@ -52,9 +52,10 @@ async def fetch_all_businesses(num_of_rows: int = 1000, max_pages: int = 200) ->
         all_items.extend(items)
 
         total_count = _extract_total_count(response)
-        if total_count is not None and page * num_of_rows >= total_count:
-            break
-        if len(items) < num_of_rows:
+        if total_count is not None:
+            if len(all_items) >= total_count:
+                break
+        elif len(items) < num_of_rows:
             break
         page += 1
 

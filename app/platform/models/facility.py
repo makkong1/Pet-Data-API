@@ -18,6 +18,7 @@ class PetFacility(Base):
     region_city: Mapped[str] = mapped_column(String(50), nullable=False)
     region_district: Mapped[str] = mapped_column(String(50), nullable=False)
     phone: Mapped[Optional[str]] = mapped_column(String(20))
+    category: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     lat: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     lng: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

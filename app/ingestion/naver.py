@@ -1,6 +1,10 @@
 import re
+import asyncio
+import logging
 from app.platform.core.config import settings
 from app.ingestion.client import fetch_public_api
+
+logger = logging.getLogger(__name__)
 
 NAVER_BLOG_URL = "https://openapi.naver.com/v1/search/blog.json"
 
@@ -22,12 +26,12 @@ CATEGORY_KEYWORDS: dict[str, list[str]] = {
 def _strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text)
 
-async def search_naver_blog(query: str, display: int = 100) -> list[dict]:
+async def search_naver_blog(query: str, display: int = 100, sort: str = "sim") -> list[dict]:
     headers = {
         "X-Naver-Client-Id": settings.NAVER_CLIENT_ID,
         "X-Naver-Client-Secret": settings.NAVER_CLIENT_SECRET,
     }
-    params = {"query": query, "display": display, "sort": "sim"}
+    params = {"query": query, "display": display, "sort": sort}
     data = await fetch_public_api(NAVER_BLOG_URL, params=params, headers=headers, timeout=10)
     items = data.get("items", [])
     return [
@@ -36,13 +40,33 @@ async def search_naver_blog(query: str, display: int = 100) -> list[dict]:
             "description": _strip_html(i.get("description", "")),
             "link": i.get("link", ""),
             "postdate": i.get("postdate", ""),
+            "blogger_name": i.get("bloggername", ""),
+            "blogger_link": i.get("bloggerlink", ""),
         }
         for i in items
     ]
 
 async def collect_category_trends(category: str) -> list[dict]:
     queries = CATEGORY_KEYWORDS.get(category, [])
-    results = []
-    for query in queries:
-        results.extend(await search_naver_blog(query))
+    sem_limit = max(1, min(8, len(queries) * 2))
+    semaphore = asyncio.Semaphore(sem_limit)
+
+    async def _fetch(q: str, sort: str) -> list[dict]:
+        async with semaphore:
+            return await search_naver_blog(q, sort=sort)
+
+    tasks = [_fetch(q, sort) for q in queries for sort in ("sim", "date")]
+    batches = await asyncio.gather(*tasks, return_exceptions=True)
+
+    seen: set[str] = set()
+    results: list[dict] = []
+    for batch in batches:
+        if isinstance(batch, Exception):
+            logger.warning("naver blog fetch failed [%s]: %s", category, batch)
+            continue
+        for item in batch:
+            link = item.get("link", "")
+            if link and link not in seen:
+                seen.add(link)
+                results.append(item)
     return results

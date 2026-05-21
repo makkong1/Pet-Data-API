@@ -1,0 +1,29 @@
+{
+  "task": "facility-category",
+  "description": "pet_facilities 테이블에 category 컬럼 추가 및 신규 공공데이터 카테고리(pharmacy) 수집 파이프라인 구축",
+  "branch": "feat/facility-category",
+  "base_branch": "main",
+  "steps": [
+    {
+      "id": "step1",
+      "title": "DB migration: category 컬럼 추가 + GET /facilities category 필터",
+      "file": "step1.md",
+      "status": "pending",
+      "summary": ""
+    },
+    {
+      "id": "step2",
+      "title": "ingestion: pharmacy.py 추가, 기존 grooming/hospital에 category 세팅, runner.py 업데이트",
+      "file": "step2.md",
+      "status": "pending",
+      "summary": ""
+    },
+    {
+      "id": "step3",
+      "title": "serving: get_nearby_facilities category 기반 필터링, FacilityResponse category 필드 노출",
+      "file": "step3.md",
+      "status": "pending",
+      "summary": ""
+    }
+  ]
+}

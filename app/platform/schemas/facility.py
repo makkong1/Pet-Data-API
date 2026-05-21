@@ -13,6 +13,7 @@ class FacilityResponse(BaseModel):
     region_city: str = Field(..., description="시·도 (City)")
     region_district: str = Field(..., description="시·군·구 (District)")
     phone: Optional[str] = Field(None, description="전화 (Phone)")
+    category: Optional[str] = Field(None, description="카테고리 (e.g. grooming | hospital | pharmacy)")
     collected_at: datetime = Field(..., description="수집 시각 (Collected at)")
 
     model_config = {"from_attributes": True}
@@ -34,6 +35,7 @@ class FacilityDetailResponse(BaseModel):
     region_city: str = Field(..., description="시·도 (City)")
     region_district: str = Field(..., description="시·군·구 (District)")
     phone: Optional[str] = Field(None, description="전화 (Phone)")
+    category: Optional[str] = Field(None, description="카테고리 (e.g. grooming | hospital | pharmacy)")
     collected_at: datetime = Field(..., description="수집 시각 (Collected at)")
     details: Dict[str, Any] = Field(..., description="유형별 상세 (Type-specific details)")
 

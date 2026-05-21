@@ -23,6 +23,7 @@ async def list_facilities(
     region_city: Optional[str] = Query(None, description="시·도 (City)"),
     region_district: Optional[str] = Query(None, description="시·군·구 (District)"),
     status_filter: Optional[str] = Query(None, alias="status", description="영업 상태 등 (Status, e.g. 영업)"),
+    category: Optional[str] = Query(None, description="카테고리 필터 (Category, e.g. grooming | hospital | pharmacy)"),
     db: AsyncSession = Depends(get_db),
     _: None = Depends(require_api_key),
 ):
@@ -37,6 +38,8 @@ async def list_facilities(
         stmt = stmt.where(PetFacility.region_district == region_district)
     if status_filter:
         stmt = stmt.where(PetFacility.status == status_filter)
+    if category:
+        stmt = stmt.where(PetFacility.category == category)
     stmt = stmt.order_by(PetFacility.id).limit(limit + 1)
 
     result = await db.execute(stmt)

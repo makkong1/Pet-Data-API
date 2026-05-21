@@ -72,6 +72,7 @@ def parse_hospital_item(raw: dict) -> dict:
     return {
         "source_id": raw.get("MNG_NO", ""),
         "type": "HOSPITAL",
+        "category": "hospital",
         "name": raw.get("BPLC_NM", ""),
         "status": _normalize_status(raw.get("SALS_STTS_NM", "")),
         "address": addr,

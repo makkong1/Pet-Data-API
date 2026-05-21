@@ -5,6 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.ingestion.business import fetch_all_businesses
 from app.ingestion.hospital import fetch_all_hospitals
+from app.ingestion.pharmacy import fetch_all_pharmacies
 from app.ingestion.geocoder import geocode_address
 from app.ingestion.naver import collect_category_trends, CATEGORY_KEYWORDS
 from app.ingestion.analyzer.trend import aggregate_keywords
@@ -33,13 +34,14 @@ async def _upsert_facility(db: AsyncSession, item: dict) -> bool:
     await db.execute(
         text("""
             INSERT INTO pet_facilities
-                (source_id, type, name, status, address,
+                (source_id, type, category, name, status, address,
                  region_city, region_district, phone, collected_at)
             VALUES
-                (:source_id, :type, :name, :status, :address,
+                (:source_id, :type, :category, :name, :status, :address,
                  :region_city, :region_district, :phone, NOW())
             ON CONFLICT (source_id) DO UPDATE SET
                 name            = EXCLUDED.name,
+                category        = EXCLUDED.category,
                 status          = EXCLUDED.status,
                 address         = EXCLUDED.address,
                 region_city     = EXCLUDED.region_city,
@@ -47,7 +49,7 @@ async def _upsert_facility(db: AsyncSession, item: dict) -> bool:
                 phone           = EXCLUDED.phone,
                 collected_at    = NOW()
         """),
-        item,
+        {**item, "category": item.get("category")},
     )
 
     result = await db.execute(
@@ -151,6 +153,7 @@ async def run_collection(db: AsyncSession) -> list:
     logs = []
     logs.append(await _collect_source(db, "petShop", fetch_all_businesses))
     logs.append(await _collect_source(db, "animalHospital", fetch_all_hospitals))
+    logs.append(await _collect_source(db, "animalPharmacy", fetch_all_pharmacies))
     return logs
 
 

@@ -38,8 +38,7 @@ async def test_search_naver_blog_passes_sort_to_params():
     mock_response = {"items": []}
     with patch("app.ingestion.naver.fetch_public_api", new=AsyncMock(return_value=mock_response)) as mock_fetch:
         await search_naver_blog("강아지 간식", sort="date")
-    _, kwargs = mock_fetch.call_args
-    assert kwargs["params"]["sort"] == "date"
+    assert mock_fetch.call_args.kwargs["params"]["sort"] == "date"
 
 
 @pytest.mark.asyncio

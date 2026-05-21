@@ -32,10 +32,10 @@ async def search_naver_blog(query: str, display: int = 100, sort: str = "sim") -
     items = data.get("items", [])
     return [
         {
-            "title":        _strip_html(i.get("title", "")),
-            "description":  _strip_html(i.get("description", "")),
-            "link":         i.get("link", ""),
-            "postdate":     i.get("postdate", ""),
+            "title": _strip_html(i.get("title", "")),
+            "description": _strip_html(i.get("description", "")),
+            "link": i.get("link", ""),
+            "postdate": i.get("postdate", ""),
             "blogger_name": i.get("bloggername", ""),
             "blogger_link": i.get("bloggerlink", ""),
         }

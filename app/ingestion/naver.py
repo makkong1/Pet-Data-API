@@ -22,20 +22,22 @@ CATEGORY_KEYWORDS: dict[str, list[str]] = {
 def _strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text)
 
-async def search_naver_blog(query: str, display: int = 100) -> list[dict]:
+async def search_naver_blog(query: str, display: int = 100, sort: str = "sim") -> list[dict]:
     headers = {
         "X-Naver-Client-Id": settings.NAVER_CLIENT_ID,
         "X-Naver-Client-Secret": settings.NAVER_CLIENT_SECRET,
     }
-    params = {"query": query, "display": display, "sort": "sim"}
+    params = {"query": query, "display": display, "sort": sort}
     data = await fetch_public_api(NAVER_BLOG_URL, params=params, headers=headers, timeout=10)
     items = data.get("items", [])
     return [
         {
-            "title": _strip_html(i.get("title", "")),
-            "description": _strip_html(i.get("description", "")),
-            "link": i.get("link", ""),
-            "postdate": i.get("postdate", ""),
+            "title":        _strip_html(i.get("title", "")),
+            "description":  _strip_html(i.get("description", "")),
+            "link":         i.get("link", ""),
+            "postdate":     i.get("postdate", ""),
+            "blogger_name": i.get("bloggername", ""),
+            "blogger_link": i.get("bloggerlink", ""),
         }
         for i in items
     ]

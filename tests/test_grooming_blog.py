@@ -92,3 +92,75 @@ async def test_extract_grooming_mentions_naver_fail_raises():
     ):
         with pytest.raises(Exception, match="naver down"):
             await extract_grooming_mentions()
+
+
+# 스펙 케이스 10개 (TDD — 일부는 현재 failing 예상)
+
+def test_spec_case_1_suffix_bridge():
+    """Case 1: suffix bridge 포착 — '두유네 애견미용실 후기' → 두유네 추출"""
+    text = "두유네 애견미용실 후기"
+    result = _extract_candidates_from_text(text, context="grooming")
+    assert "두유네" in result
+
+
+def test_spec_case_2_blocklist_exact_only():
+    """Case 2: blocklist exact only — '맘바이강아지미용실' → 강아지미용 아니 강아지 안 들어감"""
+    text = "맘바이강아지미용실 예약"
+    result = _extract_candidates_from_text(text, context="grooming")
+    assert "맘바이강아지" in result
+
+
+def test_spec_case_3_suffix_bridge_with_space():
+    """Case 3: suffix bridge with space — '니니 애견 미용실 예약' → 니니 추출"""
+    text = "니니 애견 미용실 예약"
+    result = _extract_candidates_from_text(text, context="grooming")
+    assert "니니" in result
+
+
+def test_spec_case_4_char_class_excluded():
+    """Case 4: char class 차단 — '#반려동물 #애견미용 #헤어스파' → set()"""
+    text = "#반려동물 #애견미용 #헤어스파"
+    result = _extract_candidates_from_text(text, context="grooming")
+    assert result == set()
+
+
+def test_spec_case_5_location_and_single_char():
+    """Case 5: location + 한글1자 차단 — '강서구 1인 미용실 후기' → set()"""
+    text = "강서구 1인 미용실 후기"
+    result = _extract_candidates_from_text(text, context="grooming")
+    assert result == set()
+
+
+def test_spec_case_6_blocklist_contains():
+    """Case 6: BLOCKLIST_CONTAINS '추천' 차단 — '반려동물 동반 안산 추천 미용실' → set()"""
+    text = "반려동물 동반 안산 추천 미용실"
+    result = _extract_candidates_from_text(text, context="grooming")
+    assert result == set()
+
+
+def test_spec_case_7_normal_extraction():
+    """Case 7: 정상 추출 — '화원강아지미용실 다녀왔어요' → 화원강아지 추출"""
+    text = "화원강아지미용실 다녀왔어요"
+    result = _extract_candidates_from_text(text, context="grooming")
+    assert "화원강아지" in result
+
+
+def test_spec_case_8_prefix_suffix_anchor_blocked():
+    """Case 8: PREFIX suffix 앵커 차단 — '애견 셀프목욕 방문 후기' → set()"""
+    text = "애견 셀프목욕 방문 후기"
+    result = _extract_candidates_from_text(text, context="grooming")
+    assert result == set()
+
+
+def test_spec_case_9_mixed_korean_english():
+    """Case 9: 혼합형(한글2자 포함) — 'ABC미용실 예약했어요' → ABC미용 추출"""
+    text = "ABC미용실 예약했어요"
+    result = _extract_candidates_from_text(text, context="grooming")
+    assert "ABC미용" in result
+
+
+def test_spec_case_10_known_limitation():
+    """Case 10: known limitation — '예약제미용실 체험기' → set() (예약제가 BLOCKLIST_EXACT에 있어야 차단)"""
+    text = "예약제미용실 체험기"
+    result = _extract_candidates_from_text(text, context="grooming")
+    assert result == set()

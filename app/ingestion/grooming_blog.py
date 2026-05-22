@@ -94,6 +94,7 @@ _log = logging.getLogger(__name__)
 
 
 _LOCATION_SUFFIX = re.compile(r'[가-힣]{1,5}(?:구|시|군|동|읍|면|로|역)$')
+_HANGUL_MIN2 = re.compile(r'[가-힣]{2,}')
 
 
 def _is_location_fragment(name: str) -> bool:
@@ -107,7 +108,7 @@ def _is_valid_name(name: str) -> bool:
         return False
     if _is_location_fragment(name):
         return False
-    if not re.search(r'[가-힣]{2,}', name):
+    if not _HANGUL_MIN2.search(name):
         return False
     return True
 

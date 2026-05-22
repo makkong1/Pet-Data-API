@@ -78,12 +78,28 @@ _BLOCKLIST_EXACT = frozenset([
     "강아지", "고양이", "반려동물", "반려견", "애견", "펫", "동물",
     "미용실", "미용", "샵", "살롱", "병원", "용품", "용품점",
     "사료", "간식", "진료", "24시", "예약제",
+    # 조사·동사·형용사: 어미 필터 미포함 케이스 직접 추가
+    "동반", "가능", "편안", "청결", "전문",
 ])
 
 _BLOCKLIST_CONTAINS = frozenset([
     "추천", "후기", "근처", "인근", "주변", "동네",
     "자격증", "학원", "협찬", "원고료", "광고",
+    # 반려동물 포함 표현 (원반려동물, 내반려동물 등 노이즈 차단)
+    "반려동물",
 ])
+
+# 어미(구/시/군/동 등) 없는 도시·지역명 — _is_location_fragment가 못 잡는 케이스
+_LOCATION_CITY = frozenset([
+    "서울", "부산", "대구", "인천", "광주", "대전", "울산", "세종",
+    "수원", "성남", "고양", "용인", "부천", "안산", "안양", "남양주",
+    "화성", "평택", "시흥", "파주", "의정부", "김포", "광명", "하남",
+    "강남", "강북", "강서", "강동", "종로", "마포", "영등포", "노원",
+    "분당", "일산", "판교", "화원", "제주",
+])
+
+# 한국어 조사·어미로 끝나는 단어는 상호명이 아님
+_GRAMMAR_ENDING = re.compile(r"(?:한|는|된|인|을|를|이|가|도|만|서|로|와|과|며|고|어|아|해|게)$")
 
 _CANDIDATE_CAP = 20  # §2.2 후보 상한 (Kakao 단계 진입 전)
 _FRESHNESS_WINDOW_DAYS = 180  # freshness_weight 적용 기간
@@ -104,9 +120,13 @@ def _is_location_fragment(name: str) -> bool:
 def _is_valid_name(name: str) -> bool:
     if name in _BLOCKLIST_EXACT:
         return False
+    if name in _LOCATION_CITY:
+        return False
     if any(b in name for b in _BLOCKLIST_CONTAINS):
         return False
     if _is_location_fragment(name):
+        return False
+    if _GRAMMAR_ENDING.search(name):
         return False
     if not _HANGUL_MIN2.search(name):
         return False

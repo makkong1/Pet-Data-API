@@ -164,3 +164,29 @@ def test_spec_case_10_known_limitation():
     text = "예약제미용실 체험기"
     result = _extract_candidates_from_text(text, context="grooming")
     assert result == set()
+
+
+# ── 노이즈 필터 회귀 테스트 (운영 로그에서 관찰된 케이스) ──
+
+def test_noise_grammar_ending_filtered():
+    """'가능한 미용실', '편안한 그루밍샵', '있는 미용실' → 어미 필터로 제거."""
+    assert _extract_candidates_from_text("가능한 미용실 추천해요", context="grooming") == set()
+    assert _extract_candidates_from_text("편안한 그루밍샵이에요", context="grooming") == set()
+    assert _extract_candidates_from_text("있는 미용실 알려주세요", context="grooming") == set()
+
+
+def test_noise_city_name_filtered():
+    """'안산 미용실', '강남 미용실', '대전 미용실' → 도시명 필터로 제거."""
+    assert _extract_candidates_from_text("안산 미용실 다녀왔어요", context="grooming") == set()
+    assert _extract_candidates_from_text("강남 미용실 추천", context="grooming") == set()
+    assert _extract_candidates_from_text("대전 미용실 후기", context="grooming") == set()
+
+
+def test_noise_baeryeodongmul_filtered():
+    """'원반려동물 미용실' → '반려동물' BLOCKLIST_CONTAINS로 제거."""
+    assert _extract_candidates_from_text("원반려동물 미용실 다녀왔어요", context="grooming") == set()
+
+
+def test_noise_dongban_filtered():
+    """'동반 미용실' → BLOCKLIST_EXACT 추가로 제거."""
+    assert _extract_candidates_from_text("동반 미용실 이용했어요", context="grooming") == set()

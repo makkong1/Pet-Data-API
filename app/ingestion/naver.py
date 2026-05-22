@@ -46,10 +46,11 @@ async def search_naver_blog(query: str, display: int = 100, sort: str = "sim") -
         for i in items
     ]
 
+_NAVER_SEM_LIMIT = 4  # 카테고리당 동시 Naver API 호출 상한
+
 async def collect_category_trends(category: str) -> list[dict]:
     queries = CATEGORY_KEYWORDS.get(category, [])
-    sem_limit = max(1, min(8, len(queries) * 2))
-    semaphore = asyncio.Semaphore(sem_limit)
+    semaphore = asyncio.Semaphore(_NAVER_SEM_LIMIT)
 
     async def _fetch(q: str, sort: str) -> list[dict]:
         async with semaphore:

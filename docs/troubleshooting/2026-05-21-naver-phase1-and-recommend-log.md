@@ -192,14 +192,29 @@ curl -X POST "http://localhost:8001/collect/trigger?scope=trends" \
 
 ---
 
-### 🟢 P4 — blog 레이턴시 불안정 (세마포어 설계 주의사항)
+### ✅ P4 — 세마포어 throttle 없음 (해결 2026-05-22)
 
-**현상:** blog latency가 196ms ~ 443ms로 편차 큼. kakao는 캐시 후 9ms로 안정.
+**현상:** blog latency가 196ms ~ 443ms로 편차 큼. 세마포어가 throttle 역할을 못하고 있었음.
 
-**원인:** Redis 블로그 언급 캐시 TTL 또는 캐시 키 구조에 따라 cold/warm 차이 발생.
+**원인 확인:**
 
-**Phase 1 주의사항 (코드 리뷰에서 지적됨):**
-현재 세마포어 공식 `max(1, min(8, len(queries)*2))`은 현재 카테고리 기준(최대 쿼리 3개)에서 `sem_limit == task 수`가 되어 실질적 throttle이 없음. 쿼리가 5개 이상으로 늘어나는 시점에 자동 상한 작동. 필요 시 고정값(`asyncio.Semaphore(4)`)으로 교체 고려.
+```
+# 수정 전 공식: max(1, min(8, len(queries)*2))
+grooming   queries=3  tasks=6  sem_limit=6  throttle=없음
+cafe       queries=3  tasks=6  sem_limit=6  throttle=없음
+hospital   queries=2  tasks=4  sem_limit=4  throttle=없음
+# 12개 카테고리 전부 sem_limit == tasks → 실질 동시 제한 전무
+```
+
+**수정 (`naver.py`):**
+
+`max(1, min(8, len(queries)*2))` → 고정 상수 `_NAVER_SEM_LIMIT = 4`
+
+- 3-query 카테고리(tasks=6): 4개 동시 실행, 2개 대기 → throttle 유효
+- 2-query 카테고리(tasks=4): 4개 동시 실행 = 현행 유지 (실질 동일)
+- 쿼리 확장 시에도 상한 4 고정
+
+**테스트:** 8/8 통과
 
 ---
 
@@ -210,7 +225,7 @@ curl -X POST "http://localhost:8001/collect/trigger?scope=trends" \
 | P1 | 꾸러미세상 distance 불일치 | dedup 로직 수정 (`a62b068`) | ✅ 완료 |
 | P2 | trends 빈 배열 | 수동 수집 실행, 12개 카테고리 적재 완료 | ✅ 완료 |
 | P3 | mention_count 포화 + 추출 품질 | 재관찰 완료 — 추출 파편 문제로 재분류, Phase 2에서 처리 | 🔁 Phase 2 |
-| P4 | 세마포어 throttle 없음 | 쿼리 확장 시 고정 상한으로 교체 검토 | ⏳ 대기 |
+| P4 | 세마포어 throttle 없음 | 고정 상수 `_NAVER_SEM_LIMIT = 4` 로 교체 | ✅ 완료 |
 
 ---
 

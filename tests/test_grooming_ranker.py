@@ -2,6 +2,7 @@ import pytest
 from app.serving.recommender.grooming_ranker import (
     haversine_m,
     _is_same_facility,
+    _might_be_same_facility,
     rank_grooming_facilities,
 )
 
@@ -100,3 +101,45 @@ def test_rank_top_n_limit():
     ]
     result = rank_grooming_facilities(public, {}, {}, USER_LAT, USER_LNG, RADIUS_M, top_n=3)
     assert len(result) == 3
+
+
+def test_might_be_same_facility_prefix():
+    """한쪽이 다른 쪽 prefix면 True."""
+    assert _might_be_same_facility("꾸러미세상", "꾸러미세상 애견용품") is True
+    assert _might_be_same_facility("꾸러미세상 애견용품", "꾸러미세상") is True
+
+
+def test_might_be_same_facility_different():
+    """완전히 다른 이름은 False."""
+    assert _might_be_same_facility("꾸러미세상", "행복강아지미용실") is False
+
+
+def test_rank_dedup_public_name_kakao_longer_name():
+    """공공 DB 약식명(꾸러미세상) vs Kakao 정식명(꾸러미세상 애견용품) — 1개만 반환, 공공 우선."""
+    # P1 재현: public 409m(주소없음) + Kakao standalone 1110m(주소있음)
+    public = [
+        {
+            "source_id": "B001", "name": "꾸러미세상", "address": "",
+            "lat": 37.6129, "lng": 127.0775, "distance_m": 409,
+        }
+    ]
+    kakao_map = {
+        "꾸러미세상": [
+            {
+                "name": "꾸러미세상 애견용품",
+                "address": "서울 중랑구 봉화산로 115",
+                "lat": 37.6194, "lng": 127.0819,
+            }
+        ]
+    }
+    mention_map = {"꾸러미세상": {"count": 6, "freshness": 0.5}}
+    result = rank_grooming_facilities(
+        public, kakao_map, mention_map, USER_LAT, USER_LNG, radius_m=10000.0, top_n=5
+    )
+    names = [r["name"] for r in result]
+    # 중복 없이 1개만
+    assert sum(1 for n in names if "꾸러미세상" in n) == 1
+    # 공공 데이터 우선 — distance_m이 Kakao standalone(1110m)이 아닌 공공값(409m)
+    kuru = next(r for r in result if "꾸러미세상" in r["name"])
+    assert kuru["distance_m"] == 409
+    assert kuru["mention_count"] == 6

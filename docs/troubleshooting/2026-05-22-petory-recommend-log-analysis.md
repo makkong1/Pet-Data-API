@@ -135,7 +135,7 @@ _log.info(
 
 ---
 
-## 우선순위 요약
+## 우선순위 요약 (1차 — 12:08 로그 기준)
 
 | # | 이슈 | 심각도 | 조치 대상 |
 |---|------|--------|-----------|
@@ -145,3 +145,97 @@ _log.info(
 | 4 | candidate_raw 상시 포화 | 🟡 Low | 품질 측정 후 판단 |
 | 5 | response 전체 JSON 로그 | 🟡 Low | 운영 전 교체 |
 | 6 | 로그 인터리빙 | ℹ️ Info | 현재 구조상 정상 |
+
+---
+
+## 2차 관찰 — 21:47~21:58 로그 (노이즈 필터 적용 후)
+
+**배경:** `grooming_blog.py` Phase 2b 노이즈 필터 (`_GRAMMAR_ENDING`, `_LOCATION_CITY`, `_BLOCKLIST_CONTAINS` 확장) 배포 직후.
+
+---
+
+### 관찰 A — mention_map 노이즈 1차 감소 ✅ (부분)
+
+**이전 top sample:**
+```
+('원반려동물', 17), ('안산', 14), ('가능한', 7), ('강남', 5), ('대전', 4), ('편안한', 4), ('동반', 4), ('있는', 4)
+```
+
+**현재 top sample (grooming):**
+```
+('맘바이강아지', 4), ('화원강아지', 4), ('강남강아지', 2), ('광안리', 2), ('부산강아지', 2),
+('좋은', 2), ('다른', 2), ('창원', 2), ('창원강아지', 2), ('강아지미용실', 2)
+```
+
+- `원반려동물`(×17), `안산`(×14), `가능한`(×7), `강남`, `대전`, `편안한`, `동반`, `있는` → **완전 제거** ✅
+- `강아지미용실`(×2) 이 mention_map에 포함 → `강아지미용실` 시설 mention_count=2, mention_score=1.0 으로 정상 매핑 ✅
+
+**남은 노이즈 (미처리):**
+- `좋은`(2), `다른`(2) — 형용사. grammar ending 필터에 `은`, `른` 미포함
+- `광안리`(2) — 부산 지역명. `_LOCATION_SUFFIX`가 `리$` 미포함, `_LOCATION_CITY`에도 없음
+- `창원`(2) — 시 이름. `_LOCATION_CITY` 누락
+- `부산강아지`(2), `강남강아지`(2), `창원강아지`(2) — 지역명+강아지 복합어. 패턴이 "XXX강아지 미용실" 텍스트에서 "XXX강아지"를 추출
+
+---
+
+### 관찰 B — grooming 결과 구성 변화
+
+이전: `이쁘개멋있개`(mention=5, 6484m), `알라꿀 펫살롱`(mention=5, 6729m) 포함  
+현재: `감성있개`(mention=0), `사랑해줄개`(mention=0), `고양이미용실 냥냥박사`(mention=0) 로 교체
+
+- 노이즈 필터로 `이쁘개멋있개`·`알라꿀`이 mention_map에서 탈락하거나 count < 2 로 내려가 Kakao 검색 대상에서 제외됨 → 원거리 고mention 시설이 사라지고 가까운 저mention 공공 시설이 채움
+
+**신규 이슈:**
+- `고양이미용실 냥냥박사` — **고양이 전용 미용실**이 grooming(강아지 대상) 결과에 포함 🟠
+  - 공공 DB `category=grooming`으로 적재됐으나 시설명에 '고양이' 포함
+  - `grooming_ranker`에 `고양이` 키워드 이름 필터 추가 또는 pet.type 매칭 신호 강화 검토
+
+---
+
+### 관찰 C — 니니 여전히 mention=0 🟠
+
+mention_map에 `니니` 없음. 네이버 블로그 검색에서 "니니 애견 미용실"이 패턴에 걸리는 방식으로 언급되지 않거나 count < 2. `_is_mention_of_facility` ranker 수정은 정상이나 upstream 추출 단계에서 후보 미생성 → ranker 단계에서 해결 불가.
+
+---
+
+### 관찰 D — hospital context mention_map 노이즈 심각 🔴
+
+```
+('부산24시', 10), ('입니다', 10), ('수원24시', 8), ('반려', 7), ('본동물메디컬센터', 6),
+('청주', 6), ('대구24시', 5), ('안양24시', 5), ('다녀온', 5), ('청주24시', 5)
+```
+
+- `입니다`(×10) — 서술어 종결. grammar ending `다$` 미포함
+- `다녀온`(×5) — 과거형 어미 `온` 미포함
+- `반려`(×7) — 너무 짧고 일반적
+- `부산24시`, `수원24시`, `대구24시`, `안양24시`, `청주24시` — 도시명+`24시` 복합어. `24시`가 `_BLOCKLIST_EXACT`에 있으나 포함 검사(`_BLOCKLIST_CONTAINS`)에 없어서 통과
+
+hospital context는 `_CONTEXT_QUERIES`·`_CONTEXT_HINTS`·블록리스트 모두 grooming과 독립 조정 필요.
+
+---
+
+### 관찰 E — hospital returned=1, 시설명 이상 🟠
+
+```json
+{"name": "치료해 주오", "distance_m": 385, "mention_count": 0, "source": "public"}
+```
+
+- `치료해 주오` = 문장형 이름 ("치료해 주오" → "please heal me"). 공공 DB 데이터 품질 문제.
+- 반경 10km 내 hospital 결과가 1개뿐 — `public_db count=20`이나 ranker/signal 통과 후 1개만 남음. hospital 랭킹 로직 점검 필요.
+
+---
+
+## 우선순위 요약 (갱신 — 2차 관찰 포함)
+
+| # | 이슈 | 심각도 | 상태 | 조치 대상 |
+|---|------|--------|------|-----------|
+| 1 | Petory 3중 중복 호출 | 🔴 High | 미해결 | Petory 클라이언트 |
+| 2 | hospital mention_map 노이즈 (`입니다`, `다녀온`, `24시` 복합어 등) | 🔴 High | 신규 | `grooming_blog.py` hospital 필터 |
+| 3 | grooming mention_map 잔존 노이즈 (`좋은`, `광안리`, `창원`, 지역+강아지 복합어) | 🟠 Medium | 진행중 | `grooming_blog.py` grammar/location 확장 |
+| 4 | 고양이미용실이 grooming 결과에 포함 | 🟠 Medium | 신규 | `grooming_ranker` 고양이 키워드 필터 |
+| 5 | 니니 mention=0 (블로그 추출 미포함) | 🟠 Medium | 미해결 | 쿼리 확장 또는 _MIN_MENTION_COUNT 완화 검토 |
+| 6 | hospital returned=1 / `치료해 주오` 이상 시설명 | 🟠 Medium | 신규 | 공공 DB 데이터 점검, hospital 랭킹 조정 |
+| 7 | 동물병원이 grooming 결과에 포함 | ✅ 해결 | `grooming_ranker` 병원 키워드 필터 |
+| 8 | candidate_raw 상시 포화 | 🟡 Low | 유지 | 품질 개선으로 자연 해소 기대 |
+| 9 | response 전체 JSON 로그 | 🟡 Low | 유지 | 운영 전 교체 |
+| 10 | 로그 인터리빙 | ℹ️ Info | 정상 | — |

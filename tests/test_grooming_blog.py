@@ -104,7 +104,7 @@ def test_spec_case_1_suffix_bridge():
 
 
 def test_spec_case_2_blocklist_exact_only():
-    """Case 2: blocklist exact only — '맘바이강아지미용실' → 강아지미용 아니 강아지 안 들어감"""
+    """맘바이강아지미용실 → 맘바이강아지 추출 (exact blocklist만 차단)"""
     text = "맘바이강아지미용실 예약"
     result = _extract_candidates_from_text(text, context="grooming")
     assert "맘바이강아지" in result
@@ -153,8 +153,8 @@ def test_spec_case_8_prefix_suffix_anchor_blocked():
 
 
 def test_spec_case_9_mixed_korean_english():
-    """Case 9: 혼합형(한글2자 포함) — 'ABC미용실 예약했어요' → ABC미용 추출"""
-    text = "ABC미용실 예약했어요"
+    """Case 9: 혼합형(한글2자 포함) — 'ABC미용 그루밍샵 예약했어요' → ABC미용 추출"""
+    text = "ABC미용 그루밍샵 예약했어요"
     result = _extract_candidates_from_text(text, context="grooming")
     assert "ABC미용" in result
 

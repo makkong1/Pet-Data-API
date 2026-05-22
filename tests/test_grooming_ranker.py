@@ -2,6 +2,7 @@ import pytest
 from app.serving.recommender.grooming_ranker import (
     haversine_m,
     _is_same_facility,
+    _is_mention_of_facility,
     _might_be_same_facility,
     rank_grooming_facilities,
 )
@@ -169,3 +170,43 @@ def test_hospital_kakao_excluded_from_grooming():
     names = [r["name"] for r in result]
     assert "우솔동물병원" not in names
     assert "예쁜미용실" in names
+
+
+# ── _is_mention_of_facility 단위 테스트 ──
+
+def test_is_mention_of_facility_prefix_match():
+    """짧은 멘션(니니)이 정식명(니니 애견 미용실)에 포함되면 True."""
+    assert _is_mention_of_facility("니니", "니니 애견 미용실") is True
+
+
+def test_is_mention_of_facility_same_length_rejected():
+    """정식명과 길이 차이가 작으면 False (우연한 포함 방지)."""
+    assert _is_mention_of_facility("니니", "니니샵") is False
+
+
+def test_is_mention_of_facility_unrelated_false():
+    """관련 없는 이름은 False."""
+    assert _is_mention_of_facility("루비", "니니 애견 미용실") is False
+
+
+def test_is_mention_of_facility_too_short_false():
+    """1자 멘션은 False."""
+    assert _is_mention_of_facility("니", "니니 애견 미용실") is False
+
+
+# ── 니니 → "니니 애견 미용실" 실제 매핑 시나리오 ──
+
+def test_nini_mention_maps_to_facility():
+    """블로그 멘션 '니니'가 공공 DB '니니 애견 미용실'에 매핑되어 mention_count가 반영된다."""
+    public = [
+        {
+            "source_id": "N001", "name": "니니 애견 미용실", "address": "서울",
+            "lat": 37.5665, "lng": 126.979, "distance_m": 500,
+        }
+    ]
+    mention_map = {"니니": {"count": 3, "freshness": 0.7}}
+    result = rank_grooming_facilities(public, {}, mention_map, USER_LAT, USER_LNG, RADIUS_M, top_n=5)
+    assert len(result) == 1
+    assert result[0]["name"] == "니니 애견 미용실"
+    assert result[0]["mention_count"] == 3
+    assert result[0]["source"] == "public+kakao"

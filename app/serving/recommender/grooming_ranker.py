@@ -57,6 +57,21 @@ def _is_hospital_name(name: str) -> bool:
     return bool(_HOSPITAL_NAME.search(name))
 
 
+def _is_mention_of_facility(mention: str, facility_name: str) -> bool:
+    """블로그 멘션명(짧은 별칭)이 시설 정식명의 일부인지 확인.
+
+    "니니" → "니니 애견 미용실" 같이 suffix bridge로 추출된 짧은 멘션이
+    fuzz.ratio 임계값을 통과하지 못하는 경우를 보완.
+    멘션 정규화 최소 2자, 시설명 정규화 멘션보다 2자 이상 길어야 적용
+    (동일 길이 두 단어의 우연한 포함 방지).
+    """
+    m_norm = _normalize_for_match(mention)
+    f_norm = _normalize_for_match(facility_name)
+    if len(m_norm) < 2 or len(f_norm) <= len(m_norm) + 1:
+        return False
+    return m_norm in f_norm
+
+
 def _clamp01(v: float) -> float:
     return max(0.0, min(1.0, v))
 
@@ -112,9 +127,9 @@ def rank_grooming_facilities(
             "freshness": 0.0,
             "public_matched": True,
         }
-        # 블로그 멘션 매핑 시도
+        # 블로그 멘션 매핑 시도 (exact ratio 먼저, 짧은 별칭 prefix 폴백)
         for m_name, m_info in mention_map.items():
-            if _is_same_facility(pf["name"], m_name):
+            if _is_same_facility(pf["name"], m_name) or _is_mention_of_facility(m_name, pf["name"]):
                 entry["mention_count"] = m_info["count"]
                 entry["freshness"] = m_info["freshness"]
                 entry["source"] = "public+kakao"

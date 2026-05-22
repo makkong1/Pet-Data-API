@@ -8,6 +8,9 @@ from rapidfuzz import fuzz
 # §2.3 유사도 임계값 — SSOT (docs/GROOMING-RECOMMEND-MVP.md §2.3)
 _SIMILARITY_THRESHOLD = 85  # RapidFuzz ratio 기준
 
+# grooming 컨텍스트에서 제외할 병원성 키워드 (공공 DB 데이터 오류 방어)
+_HOSPITAL_NAME = re.compile(r"병원|의원|클리닉")
+
 # §2.8 점수 가중치 (합 = 1.0)
 _W_DISTANCE = 0.5
 _W_MENTION = 0.3
@@ -50,6 +53,10 @@ def _might_be_same_facility(name_a: str, name_b: str) -> bool:
     return fuzz.ratio(na, nb) >= _SIMILARITY_THRESHOLD
 
 
+def _is_hospital_name(name: str) -> bool:
+    return bool(_HOSPITAL_NAME.search(name))
+
+
 def _clamp01(v: float) -> float:
     return max(0.0, min(1.0, v))
 
@@ -89,6 +96,9 @@ def rank_grooming_facilities(
     candidates: list[dict] = []
 
     for pf in public_facilities:
+        if _is_hospital_name(pf["name"]):
+            _log.debug("grooming_ranker [%s] skip hospital name=%s", rid, pf["name"])
+            continue
         entry = {
             "name": pf["name"],
             "address": pf["address"],
@@ -139,6 +149,9 @@ def rank_grooming_facilities(
                     )
                     matched_public["source"] = "public+kakao"
             else:
+                if _is_hospital_name(place["name"]):
+                    _log.debug("grooming_ranker [%s] skip hospital (kakao) name=%s", rid, place["name"])
+                    continue
                 # Kakao 단독 후보
                 m_info = mention_map.get(candidate_name, {})
                 entry = {

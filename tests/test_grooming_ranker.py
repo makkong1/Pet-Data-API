@@ -143,3 +143,29 @@ def test_rank_dedup_public_name_kakao_longer_name():
     kuru = next(r for r in result if "꾸러미세상" in r["name"])
     assert kuru["distance_m"] == 409
     assert kuru["mention_count"] == 6
+
+
+def test_hospital_excluded_from_grooming():
+    """병원·의원·클리닉 이름 시설은 grooming 결과에서 제외."""
+    public = [
+        {"source_id": "H001", "name": "우솔동물병원", "address": "서울", "lat": 37.5665, "lng": 126.979, "distance_m": 200},
+        {"source_id": "A001", "name": "해피독미용실", "address": "서울", "lat": 37.5667, "lng": 126.979, "distance_m": 300},
+        {"source_id": "H002", "name": "행복동물의원", "address": "서울", "lat": 37.5668, "lng": 126.979, "distance_m": 400},
+    ]
+    result = rank_grooming_facilities(public, {}, {}, USER_LAT, USER_LNG, RADIUS_M, top_n=5)
+    names = [r["name"] for r in result]
+    assert "우솔동물병원" not in names
+    assert "행복동물의원" not in names
+    assert "해피독미용실" in names
+
+
+def test_hospital_kakao_excluded_from_grooming():
+    """Kakao 단독 후보에서도 병원명은 제외."""
+    kakao_map = {
+        "우솔동물병원": [{"name": "우솔동물병원", "address": "서울", "lat": 37.5665, "lng": 126.979}],
+        "예쁜미용실": [{"name": "예쁜미용실", "address": "서울", "lat": 37.5666, "lng": 126.979}],
+    }
+    result = rank_grooming_facilities([], kakao_map, {}, USER_LAT, USER_LNG, RADIUS_M, top_n=5)
+    names = [r["name"] for r in result]
+    assert "우솔동물병원" not in names
+    assert "예쁜미용실" in names

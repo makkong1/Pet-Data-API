@@ -1,19 +1,24 @@
 """시설 검색 — 이름(pg_trgm) + 태그 + 지역 + (옵션) 반경. 기존 /facilities 와 분리."""
 
+"""시설 검색 — 이름(pg_trgm) + 태그 + 지역 + (옵션) 반경. 기존 /facilities 와 분리."""
+
+import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi import APIRouter, Depends, Query, HTTPException, Request, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.core.auth import require_api_key
 from app.platform.core.database import get_db
+from app.platform.observability import get_request_id
 from app.serving.recommender.facilities import (
     CONTEXT_TO_FACILITY_TYPE,
     normalize_context,
 )
 
 router = APIRouter(prefix="/facilities", tags=["검색 (Search)"])
+_log = logging.getLogger(__name__)
 
 
 _VALID_SORTS = {"distance", "trend", "name"}
@@ -29,6 +34,7 @@ _VALID_SORTS = {"distance", "trend", "name"}
     ),
 )
 async def search_facilities(
+    request: Request,
     q: Optional[str] = Query(None, min_length=1, max_length=100, description="이름 검색어 (pg_trgm 유사도)"),
     context: Optional[str] = Query(None, description="컨텍스트 (grooming|hospital|supplies 등)"),
     tags: Optional[str] = Query(None, description="콤마 구분 태그 — 하나라도 매칭되면 OK"),
@@ -43,6 +49,11 @@ async def search_facilities(
     db: AsyncSession = Depends(get_db),
     _: None = Depends(require_api_key),
 ):
+    rid = get_request_id(request)
+    _log.info(
+        "[%s] search_facilities q=%s context=%s tags=%s city=%s district=%s lat=%s lng=%s radius_km=%s sort=%s limit=%d",
+        rid, q, context, tags, region_city, region_district, lat, lng, radius_km, sort, limit,
+    )
     if sort not in _VALID_SORTS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -172,6 +183,7 @@ async def search_facilities(
     if sort != "name":
         has_next = False
 
+    _log.info("[%s] search_facilities -> items=%d has_next=%s sort=%s", rid, len(items), has_next, sort)
     return {
         "items": items,
         "next_cursor": next_cursor,

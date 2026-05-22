@@ -1,7 +1,8 @@
 import logging
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
 from app.platform.core.database import AsyncSessionLocal
 from app.platform.core.auth import require_admin_key
+from app.platform.observability import get_request_id
 from app.ingestion.runner import run_collection_by_scope
 
 _log = logging.getLogger(__name__)
@@ -52,9 +53,12 @@ def collect_scope(
     response_model=dict,
 )
 async def trigger_collection(
+    request: Request,
     background_tasks: BackgroundTasks,
     scope: str = Depends(collect_scope),
     _: None = Depends(require_admin_key),
 ):
+    rid = get_request_id(request)
+    _log.info("[%s] trigger_collection scope=%s -> 백그라운드 수집 예약", rid, scope)
     background_tasks.add_task(_run_in_background, scope)
     return {"status": "accepted", "scope": scope}

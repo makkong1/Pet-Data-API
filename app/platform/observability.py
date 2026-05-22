@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 import uuid
 from typing import Awaitable, Callable
 
@@ -14,6 +16,39 @@ from app.platform.cache.redis import get_redis
 from app.platform.core.database import AsyncSessionLocal
 
 REQUEST_ID_HEADER = "X-Request-Id"
+
+_access_log = logging.getLogger("pet_data_api.access")
+_QUIET_PATHS = frozenset({"/healthz", "/readyz", "/metrics"})
+
+
+class AccessLogMiddleware(BaseHTTPMiddleware):
+    """모든 요청의 진입·완료를 구조화 로그로 기록. 헬스·메트릭 경로는 DEBUG 레벨."""
+
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        rid = getattr(request.state, "request_id", "-")
+        path = request.url.path
+        query = str(request.url.query) or "-"
+        ip = request.client.host if request.client else "-"
+        quiet = path in _QUIET_PATHS
+
+        log = _access_log.debug if quiet else _access_log.info
+        log("[%s] --> %s %s query=%s ip=%s", rid, request.method, path, query, ip)
+
+        t0 = time.monotonic()
+        try:
+            response = await call_next(request)
+        except Exception:
+            elapsed = int((time.monotonic() - t0) * 1000)
+            _access_log.error("[%s] <-- 500 elapsed_ms=%d path=%s", rid, elapsed, path)
+            raise
+
+        elapsed = int((time.monotonic() - t0) * 1000)
+        log("[%s] <-- %d elapsed_ms=%d path=%s", rid, response.status_code, elapsed, path)
+        return response
 
 
 class RequestIdMiddleware(BaseHTTPMiddleware):
@@ -43,6 +78,9 @@ def get_request_id(request: Request) -> str:
 
 def attach_observability(app: FastAPI) -> None:
     """앱에 미들웨어·헬스체크·메트릭을 부착. main.py 에서 한 번 호출."""
+    # AccessLogMiddleware 를 먼저 등록해야 RequestIdMiddleware 가 outer(먼저 실행)가 되어
+    # request_id 가 이미 설정된 상태에서 AccessLog 가 찍힌다.
+    app.add_middleware(AccessLogMiddleware)
     app.add_middleware(RequestIdMiddleware)
 
     @app.get("/healthz", tags=["health"], summary="Liveness probe")

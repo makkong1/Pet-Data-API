@@ -150,6 +150,13 @@ async def recommend(
 
         candidate_count_raw = len(mention_map)
         candidate_count_after_cap = len(candidate_names)
+        _log.info(
+            "context_pipe [%s] mention_map context=%s size=%d sample=%s",
+            req_id,
+            normalized_context,
+            len(mention_map),
+            [(k, v["count"]) for k, v in list(mention_map.items())[:10]],
+        )
 
         # Kakao 장소 검색 (실패 시 폴백: 공공만)
         t_kakao = time.monotonic()

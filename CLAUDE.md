@@ -151,7 +151,7 @@ pet-data-api/
 └── tests/
 ```
 
-**경계**: [`docs/INGESTION-VS-SERVING.md`](docs/INGESTION-VS-SERVING.md), 흐름 [`docs/DATA-AND-API-FLOW.md`](docs/DATA-AND-API-FLOW.md).
+**경계**: [`docs/INGESTION-VS-SERVING.md`](docs/INGESTION-VS-SERVING.md), 흐름 [`docs/분석/DATA-AND-API-FLOW.md`](docs/분석/DATA-AND-API-FLOW.md).
 
 ## 아키텍처 핵심 패턴
 

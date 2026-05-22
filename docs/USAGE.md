@@ -1,6 +1,6 @@
 # pet-data-api 사용 가이드
 
-이 문서는 레포지토리 **현재 코드**(`app/main.py`, 라우터, 마이그레이션)를 기준으로 정리했습니다. 전체 개요·아키텍처는 [`PROJECT-OVERVIEW.md`](PROJECT-OVERVIEW.md), **수집 vs API 읽기 흐름**은 [`DATA-AND-API-FLOW.md`](DATA-AND-API-FLOW.md), 에이전트용 요약은 루트 [`CLAUDE.md`](../CLAUDE.md)를 보세요.
+이 문서는 레포지토리 **현재 코드**(`app/main.py`, 라우터, 마이그레이션)를 기준으로 정리했습니다. 전체 개요·아키텍처는 [`PROJECT-OVERVIEW.md`](PROJECT-OVERVIEW.md), **수집 vs API 읽기 흐름**은 [`분석/DATA-AND-API-FLOW.md`](분석/DATA-AND-API-FLOW.md), 에이전트용 요약은 루트 [`CLAUDE.md`](../CLAUDE.md)를 보세요.
 
 ## 이 프로젝트가 하는 일
 

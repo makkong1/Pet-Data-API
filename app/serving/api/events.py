@@ -36,6 +36,10 @@ async def post_recommendation_events(
     db: AsyncSession = Depends(get_db),
     _: None = Depends(require_api_key),
 ) -> RecommendationEventsResponse:
+    _log.info(
+        "[%s] events_recommendation events=%d -> facility_interactions INSERT",
+        payload.request_id or "-", len(payload.events),
+    )
     accepted = 0
     skipped = 0
 
@@ -81,5 +85,9 @@ async def post_recommendation_events(
         accepted = 0
         skipped = len(payload.events)
 
+    _log.info(
+        "[%s] events_recommendation -> accepted=%d skipped=%d",
+        payload.request_id or "-", accepted, skipped,
+    )
     response.status_code = status.HTTP_202_ACCEPTED
     return RecommendationEventsResponse(accepted=accepted, skipped=skipped)

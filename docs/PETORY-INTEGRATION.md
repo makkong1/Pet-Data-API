@@ -353,4 +353,4 @@ A. Ollama 시스템 프롬프트로 한국어 강제. 영어/그 외 언어가 �
 - 서버 API 명세: Swagger UI (`http://pet-data-api:8000/docs`).
 - 서버 변경 요약: [`V3-CHANGES.md`](V3-CHANGES.md).
 - 그루밍 MVP 계약 (기존): [`GROOMING-RECOMMEND-MVP.md`](GROOMING-RECOMMEND-MVP.md).
-- 데이터 흐름 다이어그램: [`DATA-AND-API-FLOW.md`](DATA-AND-API-FLOW.md).
+- 데이터 흐름 다이어그램: [`분석/DATA-AND-API-FLOW.md`](분석/DATA-AND-API-FLOW.md).

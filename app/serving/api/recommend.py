@@ -81,6 +81,20 @@ async def recommend(
 
     request_id = get_request_id(request)
     normalized_context = normalize_context(req.context)
+
+    _log.info(
+        "[%s] recommend context=%s lat=%.5f lng=%.5f radius_km=%s top_n=%s pet=%s include_copy=%s grooming_mvp=%s",
+        request_id,
+        req.context,
+        req.lat,
+        req.lng,
+        req.radius_km,
+        req.top_n,
+        req.pet.model_dump() if req.pet else None,
+        getattr(req, "include_copy", False),
+        settings.GROOMING_MVP_ENABLED,
+    )
+
     trends_raw = await _load_trends_for_context(req.context, 10)
     trends = [TrendKeyword(keyword=k, score=int(s)) for k, s in trends_raw]
 
@@ -225,8 +239,17 @@ async def recommend(
 
     else:
         # ── 레거시 파이프 (비그루밍 또는 플래그 off) ──
+        _log.info(
+            "[%s] recommend legacy_pipe context=%s lat=%.5f lng=%.5f radius_km=%s top_n=%s",
+            request_id, normalized_context, req.lat, req.lng, req.radius_km, req.top_n,
+        )
+        t_legacy = time.monotonic()
         public_raw = await get_nearby_facilities(
             db, req.lat, req.lng, normalized_context, req.radius_km, req.top_n
+        )
+        _log.info(
+            "[%s] recommend legacy_pipe public_db context=%s count=%d",
+            request_id, normalized_context, len(public_raw),
         )
         # facility_id·source_id 는 FacilityItem 에 노출하지 않음.
         facilities_raw = [
@@ -256,6 +279,15 @@ async def recommend(
                 recommendation = build_context_copy(
                     normalized_context, facilities_raw, trends_raw, req_id=request_id,
                 )
+
+        _log.info(
+            "[%s] recommend legacy_pipe -> facilities=%d trends=%d recommendation=%s elapsed_ms=%d",
+            request_id,
+            len(facilities),
+            len(trends_raw),
+            "rule" if recommendation else "none",
+            int((time.monotonic() - t_legacy) * 1000),
+        )
 
     # recommendation_log 적재 (실패해도 응답엔 영향 없음).
     await persist_recommendation_log(
@@ -305,6 +337,14 @@ async def recommend_copy(
 ) -> RecommendCopyResponse:
     request_id = req.request_id or get_request_id(request)
     normalized_context = normalize_context(req.context)
+    _log.info(
+        "[%s] recommend_copy context=%s facilities=%d trends=%d pet=%s",
+        request_id,
+        req.context,
+        len(req.facilities),
+        len(req.trends),
+        req.pet.model_dump() if req.pet else None,
+    )
 
     facilities_dict = [
         {"name": f.name, "distance_m": int(f.distance_m or 0), "address": ""}
@@ -336,6 +376,7 @@ async def recommend_copy(
         else:
             recommendation = build_trend_only_copy(normalized_context, trends_tuples) or None
 
+    _log.info("[%s] recommend_copy -> source=%s recommendation_len=%s", request_id, source, len(recommendation) if recommendation else 0)
     return RecommendCopyResponse(
         request_id=request_id,
         recommendation=recommendation,

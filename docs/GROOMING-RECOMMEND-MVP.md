@@ -2,7 +2,7 @@
 
 **상태:** 계약·플래그·운영 파라미터까지 반영한 **구현·Petory DTO SSOT**. 크롤링 없이 **공공 `pet_facilities` + 네이버 블로그(언급 신호) + Kakao Local(장소 보강)** 조합을 목표로 할 때, **현실적으로 까다로운 지점**과 **Petory 쪽에 필요한 변경**을 한곳에 정리한다.
 
-관련 흐름: [`DATA-AND-API-FLOW.md`](DATA-AND-API-FLOW.md), [`INGESTION-VS-SERVING.md`](INGESTION-VS-SERVING.md).
+관련 흐름: [`분석/DATA-AND-API-FLOW.md`](분석/DATA-AND-API-FLOW.md), [`INGESTION-VS-SERVING.md`](INGESTION-VS-SERVING.md).
 
 ---
 

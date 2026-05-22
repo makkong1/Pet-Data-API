@@ -59,7 +59,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 상세 다이어그램/플로우는 아래 문서로 분리되어 있습니다.
 
 - [아키텍처 상세](docs/ARCHITECTURE.md)
-- [데이터 수집·저장·API 흐름](docs/DATA-AND-API-FLOW.md)
+- [데이터 수집·저장·API 흐름](docs/분석/DATA-AND-API-FLOW.md)
 - [Ingestion vs Serving 경계](docs/INGESTION-VS-SERVING.md)
 - [사용 가이드](docs/USAGE.md)
 

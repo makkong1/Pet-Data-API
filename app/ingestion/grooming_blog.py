@@ -46,43 +46,71 @@ _CONTEXT_HINTS = {
 
 # 상호명 추출 규칙 패턴
 _SUFFIX_PATTERNS = {
-    "grooming":   re.compile(r"(.{2,10})\s*(?:미용실|애견미용|펫미용|그루밍샵)"),
-    "hospital":   re.compile(r"(.{2,12})\s*(?:동물병원|24시동물병원|애견병원)"),
-    "supplies":   re.compile(r"(.{2,12})\s*(?:펫샵|용품점|애견용품점|반려동물용품점|펫스토어)"),
-    "pharmacy":   re.compile(r"(.{2,10})\s*(?:동물약국|반려동물약국)"),
-    "cafe":       re.compile(r"(.{2,10})\s*(?:애견카페|반려동물카페|펫카페)"),
-    "pension":    re.compile(r"(.{2,10})\s*(?:반려동물펜션|애견펜션|펫펜션)"),
-    "restaurant": re.compile(r"(.{2,12})\s*(?:반려동물동반식당|애견동반식당|펫프렌들리식당)"),
-    "boarding":   re.compile(r"(.{2,12})\s*(?:위탁관리|호텔링센터|펫시터)"),
-    "hotel":      re.compile(r"(.{2,10})\s*(?:펫호텔|반려동물호텔|애견호텔)"),
+    "grooming": re.compile(
+        r"([가-힣a-zA-Z0-9]{2,10})"
+        r"(?:\s+(?:애견|반려견|펫))?"
+        r"\s*(?:미용실|애견미용|펫미용|그루밍샵)"
+    ),
+    "hospital":   re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:동물병원|24시동물병원|애견병원)"),
+    "supplies":   re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:펫샵|용품점|애견용품점|반려동물용품점|펫스토어)"),
+    "pharmacy":   re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:동물약국|반려동물약국)"),
+    "cafe":       re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:애견카페|반려동물카페|펫카페)"),
+    "pension":    re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:반려동물펜션|애견펜션|펫펜션)"),
+    "restaurant": re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:반려동물동반식당|애견동반식당|펫프렌들리식당)"),
+    "boarding":   re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:위탁관리|호텔링센터|펫시터)"),
+    "hotel":      re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:펫호텔|반려동물호텔|애견호텔)"),
 }
 _PREFIX_PATTERNS = {
-    "grooming":   re.compile(r"(?:애견|반려견|펫)\s*(.{2,8})"),
-    "hospital":   re.compile(r"(?:동물병원|애견병원)\s*(.{2,8})"),
-    "supplies":   re.compile(r"(?:펫샵|용품점)\s*(.{2,8})"),
-    "pharmacy":   re.compile(r"(?:동물약국|반려동물약국)\s*(.{2,8})"),
-    "cafe":       re.compile(r"(?:애견카페|반려동물카페)\s*(.{2,8})"),
-    "pension":    re.compile(r"(?:반려동물펜션|애견펜션)\s*(.{2,8})"),
-    "restaurant": re.compile(r"(?:반려동물동반|애견동반)\s*(.{2,8})"),
-    "boarding":   re.compile(r"(?:위탁관리|호텔링)\s*(.{2,8})"),
-    "hotel":      re.compile(r"(?:펫호텔|반려동물호텔)\s*(.{2,8})"),
+    "grooming": re.compile(
+        r"(?:애견|반려견|펫)\s*([가-힣a-zA-Z0-9]{2,8})\s*(?:미용실|애견미용|펫미용|그루밍샵)"
+    ),
+    "hospital":   re.compile(r"(?:동물병원|애견병원)\s*([가-힣a-zA-Z0-9]{2,8})"),
+    "supplies":   re.compile(r"(?:펫샵|용품점)\s*([가-힣a-zA-Z0-9]{2,8})"),
+    "pharmacy":   re.compile(r"(?:동물약국|반려동물약국)\s*([가-힣a-zA-Z0-9]{2,8})"),
+    "cafe":       re.compile(r"(?:애견카페|반려동물카페)\s*([가-힣a-zA-Z0-9]{2,8})"),
+    "pension":    re.compile(r"(?:반려동물펜션|애견펜션)\s*([가-힣a-zA-Z0-9]{2,8})"),
+    "restaurant": re.compile(r"(?:반려동물동반|애견동반)\s*([가-힣a-zA-Z0-9]{2,8})"),
+    "boarding":   re.compile(r"(?:위탁관리|호텔링)\s*([가-힣a-zA-Z0-9]{2,8})"),
+    "hotel":      re.compile(r"(?:펫호텔|반려동물호텔)\s*([가-힣a-zA-Z0-9]{2,8})"),
 }
 
-# 상호명 후보에서 제외할 일반 단어 블록리스트
-_BLOCKLIST = frozenset([
-    "미용실", "애견", "펫", "동물", "미용", "샵", "가게", "살롱", "병원",
-    "용품", "용품점", "사료", "간식", "진료", "24시",
-    "salon", "shop", "추천", "후기", "강아지", "고양이", "반려견",
-    "강남", "서울", "부산", "근처", "인근", "주변", "동네",
-    "자격증", "관리", "가위", "위생", "셀프", "전문", "학원",
+_BLOCKLIST_EXACT = frozenset([
+    "강아지", "고양이", "반려동물", "반려견", "애견", "펫", "동물",
+    "미용실", "미용", "샵", "살롱", "병원", "용품", "용품점",
+    "사료", "간식", "진료", "24시", "예약제",
+])
+
+_BLOCKLIST_CONTAINS = frozenset([
+    "추천", "후기", "근처", "인근", "주변", "동네",
+    "자격증", "학원", "협찬", "원고료", "광고",
 ])
 
 _CANDIDATE_CAP = 20  # §2.2 후보 상한 (Kakao 단계 진입 전)
 _FRESHNESS_WINDOW_DAYS = 180  # freshness_weight 적용 기간
 _MIN_MENTION_COUNT = 2  # 노이즈 제거: 최소 글수 기준
-_CANDIDATE_SANITIZE = re.compile(r"[\"'“”‘’·\[\]\(\)\{\}]")
+_CANDIDATE_SANITIZE = re.compile(u"[\u0022\u0027\u201c\u201d\u2018\u2019\u00b7\[\]\(\)\{\}#@]")
 
 _log = logging.getLogger(__name__)
+
+
+_LOCATION_SUFFIX = re.compile(r'[가-힣]{1,5}(?:구|시|군|동|읍|면|로|역)$')
+_HANGUL_MIN2 = re.compile(r'[가-힣]{2,}')
+
+
+def _is_location_fragment(name: str) -> bool:
+    return bool(_LOCATION_SUFFIX.search(name))
+
+
+def _is_valid_name(name: str) -> bool:
+    if name in _BLOCKLIST_EXACT:
+        return False
+    if any(b in name for b in _BLOCKLIST_CONTAINS):
+        return False
+    if _is_location_fragment(name):
+        return False
+    if not _HANGUL_MIN2.search(name):
+        return False
+    return True
 
 
 def _normalize_context(context: str) -> str:
@@ -107,12 +135,12 @@ def _extract_candidates_from_text(text: str, context: str = "grooming") -> set[s
     if suffix_pattern:
         for m in suffix_pattern.finditer(text):
             name = _clean(m.group(1))
-            if len(name) >= 2 and name not in _BLOCKLIST:
+            if _is_valid_name(name):
                 candidates.add(name)
     if prefix_pattern:
         for m in prefix_pattern.finditer(text):
             name = _clean(m.group(1))
-            if len(name) >= 2 and name not in _BLOCKLIST:
+            if _is_valid_name(name):
                 candidates.add(name)
 
     return candidates

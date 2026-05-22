@@ -37,6 +37,19 @@ def _is_same_facility(name_a: str, name_b: str) -> bool:
     return fuzz.ratio(na, nb) >= _SIMILARITY_THRESHOLD
 
 
+def _might_be_same_facility(name_a: str, name_b: str) -> bool:
+    """dedup 전용 광의 판단: 짧은 쪽(≥3자)이 긴 쪽에 포함되거나 ratio >= 85.
+
+    "꾸러미세상" vs "꾸러미세상 애견용품" 같은 공공DB 약식명 vs Kakao 정식명 케이스를 잡음.
+    merge(step 2)에는 보수적인 _is_same_facility를 유지하고 dedup(step 3)에만 적용.
+    """
+    na, nb = _normalize_for_match(name_a), _normalize_for_match(name_b)
+    shorter, longer = (na, nb) if len(na) <= len(nb) else (nb, na)
+    if len(shorter) >= 3 and shorter in longer:
+        return True
+    return fuzz.ratio(na, nb) >= _SIMILARITY_THRESHOLD
+
+
 def _clamp01(v: float) -> float:
     return max(0.0, min(1.0, v))
 
@@ -145,15 +158,20 @@ def rank_grooming_facilities(
 
     _log.info("grooming_ranker [%s] after_merge candidates=%d", rid, len(candidates))
 
-    # ── 3. 중복 제거: 정규화 이름 기준
+    # ── 3. 중복 제거: 유사 이름 기준 (공공 데이터 우선)
+    # exact 정규화 대신 _might_be_same_facility를 사용해 "꾸러미세상" vs "꾸러미세상 애견용품"
+    # 같이 step 2 merge에서 놓친 케이스도 제거. public_matched 엔트리를 항상 우선 보존.
     deduped: list[dict] = []
-    seen_norms: set[str] = set()
     for c in candidates:
-        norm = _normalize_for_match(c["name"])
-        if norm in seen_norms:
-            continue
-        seen_norms.add(norm)
-        deduped.append(c)
+        matched_idx: Optional[int] = None
+        for i, existing in enumerate(deduped):
+            if _might_be_same_facility(c["name"], existing["name"]):
+                matched_idx = i
+                break
+        if matched_idx is None:
+            deduped.append(c)
+        elif c.get("public_matched") and not deduped[matched_idx].get("public_matched"):
+            deduped[matched_idx] = c
 
     by_source = {"public": 0, "public+kakao": 0, "kakao": 0}
     for c in deduped:

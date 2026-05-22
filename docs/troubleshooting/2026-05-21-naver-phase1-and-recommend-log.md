@@ -61,7 +61,7 @@ tests/test_naver_collector.py::test_search_naver_blog_includes_blogger_fields PA
 
 ## 3. 발견된 문제점
 
-### 🔴 P1 — 꾸러미세상 distance 불일치
+### ✅ P1 — 꾸러미세상 distance 불일치 (해결 2026-05-22)
 
 **현상:**
 
@@ -72,15 +72,30 @@ tests/test_naver_collector.py::test_search_naver_blog_includes_blogger_fields PA
 
 동일한 좌표(lat/lng 동일)로 3번 요청했는데 같은 시설의 거리가 달라짐.
 
-**추정 원인:**
-- 1차 요청에서 lat/lng가 누락된 레코드를 Haversine이 아닌 다른 거리 계산 경로로 처리했을 가능성
-- Kakao 장소 매핑 시 1차와 2·3차에서 서로 다른 레코드가 매핑(동명 시설 중복)
+**근본 원인:**
 
-**영향:** 거리 기반 score가 흔들려 랭킹 오염 가능성 있음.
+`rank_grooming_facilities` step 3 dedup이 `_normalize_for_match` 결과를 **exact string** 비교했기 때문.
 
-**확인 필요:**
-- `app/serving/ranker.py` 또는 거리 계산 로직에서 lat/lng 없을 때 fallback 처리 방식
-- Kakao 장소 매핑 중복 제거 로직
+- 공공 DB: `"꾸러미세상"` (409m, address 없음)
+- Kakao 검색 결과: `"꾸러미세상 애견용품"` (1110m, 도로명 주소 있음)
+- `_is_same_facility`(step 2): `fuzz.ratio("꾸러미세상", "꾸러미세상애견용품")` ≈ 71% < threshold 85% → merge 실패 → Kakao standalone 추가
+- step 3 dedup: `"꾸러미세상"` ≠ `"꾸러미세상애견용품"` (exact) → 둘 다 생존 → top-5에 동일 업장 2개 노출
+
+1차 요청에서 blog extraction이 "꾸러미세상"을 mention_map에 포함시키지 않으면 Kakao 미호출 → public 단독 409m 반환. 2·3차에서 mention 있어 Kakao 호출 → 중복 엔트리 발생.
+
+**수정 내용 (`grooming_ranker.py`):**
+
+1. `_might_be_same_facility` 함수 추가:
+   - 짧은 쪽(≥3자)이 긴 쪽에 포함되거나(`shorter in longer`) fuzz.ratio ≥ 85이면 True
+   - "꾸러미세상" in "꾸러미세상애견용품" → True ✓
+2. step 3 dedup을 exact 비교 → `_might_be_same_facility` 로 교체
+3. `public_matched=True` 엔트리 우선 보존 (공공 데이터 우선)
+
+**커밋:** `a62b068` feat: fix(ranker): 공공 약식명 vs Kakao 정식명 dedup 누락 수정
+
+**테스트:** `test_rank_dedup_public_name_kakao_longer_name` (P1 재현 시나리오) 포함 13/13 통과
+
+**재발 방지:** step 2 merge에는 보수적인 `_is_same_facility`(ratio≥85)를 유지하고, dedup에만 광의 판단 적용. Kakao 정식명이 공공 DB 약식명보다 길어지는 패턴에 대해 substring 포함 여부로 추가 포착.
 
 ---
 
@@ -135,12 +150,12 @@ mention_score가 1.0으로 포화되어 상위 4개 간 실질적인 분별력�
 
 ## 4. 다음 액션
 
-| 우선순위 | 항목 | 작업 |
-|---------|------|------|
-| P1 | 꾸러미세상 distance 불일치 | 거리 계산 로직 + Kakao 매핑 중복 확인 |
-| P2 | trends 빈 배열 | 다음 스케줄 후 Redis 키 확인 |
-| P3 | mention_count 포화 | Phase 1 수집 후 분포 재관찰, 필요 시 쿼리 확장(6순위) |
-| P4 | 세마포어 throttle 없음 | 쿼리 확장 시 고정 상한으로 교체 검토 |
+| 우선순위 | 항목 | 작업 | 상태 |
+|---------|------|------|------|
+| P1 | 꾸러미세상 distance 불일치 | dedup 로직 수정 (`a62b068`) | ✅ 완료 |
+| P2 | trends 빈 배열 | 다음 스케줄 후 Redis 키 확인 | ⏳ 대기 |
+| P3 | mention_count 포화 | Phase 1 수집 후 분포 재관찰, 필요 시 쿼리 확장(6순위) | ⏳ 대기 |
+| P4 | 세마포어 throttle 없음 | 쿼리 확장 시 고정 상한으로 교체 검토 | ⏳ 대기 |
 
 ---
 

@@ -99,20 +99,48 @@ tests/test_naver_collector.py::test_search_naver_blog_includes_blogger_fields PA
 
 ---
 
-### 🟡 P2 — `trends: []` (트렌드 데이터 없음)
+### ✅ P2 — `trends: []` (트렌드 데이터 없음) (해결 2026-05-22)
 
 **현상:** 3회 요청 전부 `"trends":[]` 반환.
 
-**추정 원인:**
-- 트렌드 수집 스케줄(매일 03:00)이 아직 실행되지 않음
-- Redis grooming 키가 비어 있음
+**근본 원인 (2가지):**
 
-**확인 필요:**
+1. **Redis 키 포맷 오인**: 처음 확인에 `redis-cli GET "trend:grooming"` 사용했으나 실제 키는 `"trends:{category}:keywords"` (ZSET). `redis.py:TREND_KEY = "trends:{category}:keywords"` 참고.
+2. **스케줄 미실행**: 수집 스케줄(매일 03:00)이 한 번도 실행되지 않아 Redis에 trend 데이터가 전무했음.
+
+**해결:**
+
+서버 없이 Python 직접 실행으로 전체 카테고리 수동 수집:
 ```bash
-redis-cli GET "trend:grooming"
+cd /Users/maknkkong/project/pet-data-api
+./venv/bin/python -c "
+import asyncio
+from app.ingestion.runner import run_trend_collection
+asyncio.run(run_trend_collection())
+"
 ```
 
-Phase 1 작업으로 `sim`+`date` 이중 수집이 적용됐으므로 다음 스케줄 실행 후 trends 필드가 채워지는지 검증 필요.
+**결과:**
+
+| 카테고리 | 상태 | 키워드 수 |
+|---------|------|---------|
+| grooming | success | 2041 |
+| hospital | success | 1868 |
+| supplies | success | 1885 |
+| cafe | success | 2682 |
+| hotel | success | 2283 |
+| 기타 7개 | success | - |
+
+`trends:grooming:keywords` 상위 10 키워드: 미용실(980), 미용(446), 애견(255), 동반(153), 가능(136), 방문(113), 케어(68), 헤어(61), 편안(61), 전문(60)
+
+**관찰 (P3 연계):** 키워드 상위에 "가능", "방문", "동반" 같은 노이즈 단어가 포함됨. `aggregate_keywords` stopword 필터 보강 여부 추후 검토.
+
+**수동 트리거 방법 (서버 실행 중일 때):**
+```bash
+curl -X POST "http://localhost:8001/collect/trigger?scope=trends" \
+  -H "X-Admin-Key: <ADMIN_KEY>"
+# 202 Accepted 반환, 백그라운드 실행
+```
 
 ---
 
@@ -153,7 +181,7 @@ mention_score가 1.0으로 포화되어 상위 4개 간 실질적인 분별력�
 | 우선순위 | 항목 | 작업 | 상태 |
 |---------|------|------|------|
 | P1 | 꾸러미세상 distance 불일치 | dedup 로직 수정 (`a62b068`) | ✅ 완료 |
-| P2 | trends 빈 배열 | 다음 스케줄 후 Redis 키 확인 | ⏳ 대기 |
+| P2 | trends 빈 배열 | 수동 수집 실행, 12개 카테고리 적재 완료 | ✅ 완료 |
 | P3 | mention_count 포화 | Phase 1 수집 후 분포 재관찰, 필요 시 쿼리 확장(6순위) | ⏳ 대기 |
 | P4 | 세마포어 throttle 없음 | 쿼리 확장 시 고정 상한으로 교체 검토 | ⏳ 대기 |
 

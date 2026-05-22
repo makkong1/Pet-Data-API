@@ -144,24 +144,51 @@ curl -X POST "http://localhost:8001/collect/trigger?scope=trends" \
 
 ---
 
-### 🟡 P3 — mention_count 상위 4개 전부 6으로 동일
+### 🟠 P3 — mention_count 포화 + 상호명 추출 품질 (2026-05-22 재관찰)
 
-**현상:**
+**Phase 1 이전 현상:**
 ```
 니니 애견 미용실:     mention_count=6, mention_score=1.0
 꾸러미세상:           mention_count=6, mention_score=1.0
 두유네 애견미용실:    mention_count=6, mention_score=1.0
 멍미용:               mention_count=6, mention_score=1.0
-최덕황애견미용학원:   mention_count=2, mention_score=0.3333
+```
+상위 4개 모두 count=6으로 포화, mention 신호가 랭킹 분별력 없음.
+
+**Phase 1 이후 재관찰 결과:**
+
+```python
+# extract_context_mentions("grooming") 직접 실행 결과
+동물미용 원반려동물   count=7  freshness=0.784
+안산                  count=6
+반려동물              count=6
+#반려동물             count=6
+반려동물 동반 안산    count=5
+화원강아지            count=4
+...
 ```
 
-mention_score가 1.0으로 포화되어 상위 4개 간 실질적인 분별력이 없음. 최종 score 차이는 거리에서만 발생.
+**분포**: max 7로 소폭 개선 (이전 6→7), 범위 7~2. 포화 해소는 미흡.
 
-**추정 원인:**
-- 현재 쿼리 수 적음(sim 단일 수집) → 언급 카운트 최대치가 낮음
-- Phase 1 이후 sim+date 이중 수집 적용 시 카운트 분포가 바뀔 수 있음
+**발견된 근본 문제 — 상호명 추출 품질:**
 
-**확인 필요:** Phase 1 수집 스케줄 실행 후 mention_count 분포 재관찰.
+추출된 "후보"가 실제 시설 이름이 아닌 **블로그 텍스트 파편**:
+- `"안산"` — 지명
+- `"반려동물 동반 안산"` — 문장 파편
+- `"#반려동물"` — 해시태그
+- `"려동물 동반 가능한"` — 문장 잘림
+
+**원인**: `_SUFFIX_PATTERNS["grooming"]` = `r"(.{2,10})\s*(?:미용실|...)"` 에서 캡처 그룹 `.{2,10}` 이 **공백 포함**으로 문장 파편을 캡처하고, `_BLOCKLIST` 가 exact 전체 문자열만 비교해 복합 파편("반려동물 동반 안산")을 통과시킴.
+
+**영향**: mention 신호가 실제 주변 시설과 매핑되지 않음 → blog mention score가 사실상 무의미한 신호.
+
+**Phase 2에서 수정 필요한 항목:**
+1. `_SUFFIX_PATTERNS` 캡처 그룹에서 공백 제거: `([^\s]{2,10})` 또는 `([가-힣a-zA-Z0-9]{2,10})`
+2. `_BLOCKLIST` 포함 여부 검사: `any(b in name for b in _BLOCKLIST)`
+3. 해시태그(`#`) 필터: `_CANDIDATE_SANITIZE`에 `#` 추가
+4. 지명/단일 일반명사 필터 강화
+
+→ P3는 Phase 1 범위를 벗어나는 **추출 품질 이슈**로 재분류. Phase 2 `quality_score` / 노이즈 필터 사이클에서 처리.
 
 ---
 
@@ -182,7 +209,7 @@ mention_score가 1.0으로 포화되어 상위 4개 간 실질적인 분별력�
 |---------|------|------|------|
 | P1 | 꾸러미세상 distance 불일치 | dedup 로직 수정 (`a62b068`) | ✅ 완료 |
 | P2 | trends 빈 배열 | 수동 수집 실행, 12개 카테고리 적재 완료 | ✅ 완료 |
-| P3 | mention_count 포화 | Phase 1 수집 후 분포 재관찰, 필요 시 쿼리 확장(6순위) | ⏳ 대기 |
+| P3 | mention_count 포화 + 추출 품질 | 재관찰 완료 — 추출 파편 문제로 재분류, Phase 2에서 처리 | 🔁 Phase 2 |
 | P4 | 세마포어 throttle 없음 | 쿼리 확장 시 고정 상한으로 교체 검토 | ⏳ 대기 |
 
 ---

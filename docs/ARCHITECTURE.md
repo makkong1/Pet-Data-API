@@ -3,7 +3,7 @@
 이 문서는 `pet-data-api`의 전체 구조를 코드 기준으로 상세 설명합니다.
 
 - 대상 코드: `app/`, `migrations/`, `tests/`
-- 보조 문서: `docs/USAGE.md`, `docs/PROJECT-OVERVIEW.md`, `docs/DATA-AND-API-FLOW.md`
+- 보조 문서: `docs/USAGE.md`, `docs/PROJECT-OVERVIEW.md`, `docs/분석/DATA-AND-API-FLOW.md`
 
 ---
 

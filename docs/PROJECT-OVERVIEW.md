@@ -2,7 +2,8 @@
 
 이 문서는 **현재 저장소 코드**(`app/`, `migrations/`, `tests/`)를 기준으로, 이 프로젝트가 **무엇을 하고 어떻게 돌아가는지** 한곳에 정리한 것입니다. 세부 실행 절차는 [`USAGE.md`](USAGE.md), 엔드포인트 표는 루트 [`README.md`](../README.md)를 함께 보세요.
 
-**수집(Ingestion) vs 서빙(Serving)** 코드 위치를 폴더 기준으로 나눈 맵은 [`INGESTION-VS-SERVING.md`](INGESTION-VS-SERVING.md).
+**수집(Ingestion) vs 서빙(Serving)** 코드 위치를 폴더 기준으로 나눈 맵은 [`INGESTION-VS-SERVING.md`](INGESTION-VS-SERVING.md).  
+데이터가 배치로 들어와 API가 무엇을 읽고(그루밍 MVP 시 무엇을 추가 호출하는지)까지 한 번에 보려면 [`분석/DATA-AND-API-FLOW.md`](분석/DATA-AND-API-FLOW.md).
 
 ---
 
@@ -103,7 +104,7 @@ HTTP 클라이언트·재시도 등 공통은 [`app/ingestion/client.py`](../app
 - [`superpowers/specs/2026-04-21-pet-trend-pipeline-design.md`](superpowers/specs/2026-04-21-pet-trend-pipeline-design.md) — 트렌드 파이프라인
 - [`superpowers/specs/2026-05-01-petory-category-recommendation-redesign.md`](superpowers/specs/2026-05-01-petory-category-recommendation-redesign.md) — Petory 카테고리 추천 재설계안
 - [`superpowers/plans/2026-04-21-pet-trend-pipeline.md`](superpowers/plans/2026-04-21-pet-trend-pipeline.md) — 구현 플랜(체크리스트)
-- [`superpowers/plans/2026-05-02-phase1-refactor-log.md`](superpowers/plans/2026-05-02-phase1-refactor-log.md) — 1차 리팩토링 반영 로그
+- [`refactoring/naver-blog-trend-ingestion.md`](refactoring/naver-blog-trend-ingestion.md) — 네이버 블로그 트렌드 수집 리팩터링 제안(Phase 롤아웃)
 
 ---
 

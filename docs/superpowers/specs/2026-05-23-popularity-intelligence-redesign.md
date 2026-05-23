@@ -39,19 +39,21 @@ Petory(Java 서버)가 위치 기반 시설 검색을 담당하고, Python 서�
   blog.py (상호명 추출 + 언급 집계)
       ↓
   Redis
-  popular:{context}  →  [{name, mention_count, avg_freshness, score}, ...]
-  trend:{context}    →  sorted set (기존)
+  popular:{context}              →  JSON 배열 (신규)
+  trends:{category}:keywords     →  Sorted Set (기존, 변경 없음)
+  trends:{category}:updated_at   →  String (기존, 변경 없음)
       ↓
-GET /popular/{context}   ← Petory 호출
-GET /trends/{context}    ← Petory 호출
+GET /popular/{context}   ← Petory 호출 (신규)
+GET /trends/{category}   ← Petory 호출 (기존, Redis 읽기만)
 ```
 
 **Petory 흐름:**
 ```
 사용자: "주변 미용실 보여줘"
   → Petory: 자기 DB에서 주변 시설 조회
-  → Petory: GET /popular/grooming (Python 서버, 비동기)
-  → UI: 시설 목록 + 인기 뱃지 합쳐서 표시
+  → Petory: GET /popular/grooming  (Python 서버, 비동기)
+  → Petory: GET /trends/grooming   (Python 서버, 비동기)
+  → UI: 시설 목록 + 인기 뱃지 + 트렌드 키워드 합쳐서 표시
 ```
 
 ---
@@ -97,6 +99,7 @@ v1에서는 적용하지 않는다. 운영 데이터 보고 판단.
 
 ```
 9 contexts × 평균 2~3 쿼리 = 약 22~27 HTTP 요청/일
+(supplies는 snack·food·clothes 쿼리까지 포함해 최대 8쿼리)
 Naver 블로그 API 일일 한도: 25,000회 → 여유 충분
 각 요청: display=100 (페이지네이션 없음)
 ```
@@ -109,7 +112,7 @@ Naver Blog API (query당 최대 100건)
 제목 + 스니펫 텍스트
     ↓
 1차 추출: context별 regex suffix/prefix 패턴
-    예) ([가-힣a-zA-Z0-9]{2~10})\s*(?:미용실|그루밍샵|...)
+    (기존 grooming_blog.py의 _SUFFIX_PATTERNS, _PREFIX_PATTERNS 그대로)
     ↓
 2차 필터 (기존 파이프라인 유지):
     BLOCKLIST_EXACT / BLOCKLIST_CONTAINS / LOCATION_CITY /
@@ -125,7 +128,7 @@ Naver Blog API (query당 최대 100건)
 ### Redis 저장 스키마
 
 ```
-KEY:   popular:{context}
+KEY:   popular:{context}          예) popular:grooming
 VALUE: JSON 배열 (최대 20개)
 TTL:   25h (24h 배치 주기 + 1h 여유)
 
@@ -140,6 +143,12 @@ TTL:   25h (24h 배치 주기 + 1h 여유)
 ]
 ```
 
+기존 트렌드 키는 변경 없음:
+```
+trends:{category}:keywords   Sorted Set  TTL 24h
+trends:{category}:updated_at String      TTL 24h
+```
+
 ### 실패 처리
 
 | 상황 | 처리 |
@@ -150,7 +159,33 @@ TTL:   25h (24h 배치 주기 + 1h 여유)
 
 ---
 
-## 5. API 스펙
+## 5. Context ↔ Category 매핑
+
+Petory가 두 엔드포인트를 연달아 호출할 때 키 이름이 달라 혼동하지 않도록 명시한다.
+
+| GET /popular/{**context**} | GET /trends/{**category**} | 비고 |
+|---|---|---|
+| grooming | grooming | 1:1 |
+| hospital | hospital | 1:1 |
+| supplies | supplies, snack, food, clothes | popular은 4개 합산, trends는 개별 키 |
+| pharmacy | pharmacy | 1:1 |
+| cafe | cafe | 1:1 |
+| pension | pension | 1:1 |
+| restaurant | restaurant | 1:1 |
+| boarding | boarding | 1:1 |
+| hotel | hotel | 1:1 |
+
+**supplies 특이사항:**  
+- `GET /popular/supplies` → blog.py가 supplies+snack+food+clothes 쿼리를 모두 사용해 하나의 `popular:supplies` 키로 집계  
+- `GET /trends/supplies` → `trends:supplies:keywords` 하나만 반환 (snack/food/clothes 별도 조회 필요)  
+- Petory가 용품 트렌드를 완전히 보려면 4개 category를 각각 호출하거나, 서버 측에서 집계 엔드포인트를 추가해야 함 (v1 스코프 밖)
+
+**별칭 (Petory → Python 서버):**  
+snack, food, clothes → popular에서는 supplies로 정규화. trends에서는 그대로 개별 키.
+
+---
+
+## 6. API 스펙
 
 ### GET /popular/{context}
 
@@ -160,12 +195,10 @@ TTL:   25h (24h 배치 주기 + 1h 여유)
 Path params:
   context: grooming | hospital | supplies | pharmacy |
            cafe | pension | restaurant | boarding | hotel
+  별칭:    snack | food | clothes → supplies 로 정규화
 
 Query params:
   limit: int  default=20  max=20
-
-  context 별칭 허용 (기존 호환):
-    snack, food, clothes → supplies 로 정규화
 
 Response 200:
 [
@@ -179,12 +212,19 @@ Response 200:
 
 Response 404:  {"detail": "Unknown context: {context}"}
 Response 503:  {"detail": "popular data unavailable"}
-               (Redis에 해당 context 키 없음 — 배치 미실행 또는 전체 장애)
+               (Redis에 popular:{context} 키 없음)
 ```
 
-### GET /trends/{context}
+### GET /trends/{category}
 
-기존 동작 유지. 변경 없음.
+```
+기존 엔드포인트 유지 (Redis Sorted Set 읽기만, DB 의존 없음)
+
+변경:
+  - GET /trends/{category}/timeseries 삭제
+    (trend_history + PostgreSQL 의존 → DB 제거에 따라 함께 삭제)
+  - GET /trends/{category} 본체는 변경 없음
+```
 
 ### POST /collect/trigger
 
@@ -193,8 +233,11 @@ Response 503:  {"detail": "popular data unavailable"}
 
 Body:
 {
-  "targets": ["popular", "trends"]
+  "targets": ["popular", "trends"]   // 둘 다 또는 하나만
 }
+
+→ "popular": 9개 context popular 배치 즉시 실행
+→ "trends":  기존 트렌드 수집 즉시 실행
 
 Response 202:
 {
@@ -205,7 +248,7 @@ Response 202:
 
 ---
 
-## 6. 파일 구조
+## 7. 파일 구조
 
 ### 새 구조 (약 25개 파일)
 
@@ -213,7 +256,7 @@ Response 202:
 app/
 ├── main.py                        # 라우터 3개
 ├── ingestion/
-│   ├── naver.py                   # Naver API 클라이언트 (유지)
+│   ├── naver.py                   # Naver API 클라이언트 + fetch HTTP 헬퍼 통합
 │   ├── blog.py                    # grooming_blog.py → 리네임·일반화
 │   ├── runner.py                  # 배치 실행 (단순화)
 │   └── analyzer/
@@ -222,15 +265,15 @@ app/
 ├── serving/
 │   └── api/
 │       ├── popular.py             # 신규
-│       ├── trends.py              # 유지
-│       └── collect.py             # 단순화
+│       ├── trends.py              # timeseries 엔드포인트 제거, 나머지 유지
+│       └── collect.py             # targets 파라미터 추가
 └── platform/
     ├── cache/redis.py
     ├── core/
     │   ├── config.py              # 환경변수 절반 삭제
     │   └── auth.py
     ├── schemas/
-    │   └── popular.py             # 신규
+    │   └── popular.py             # 신규 (기존 스키마 파일 전부 삭제)
     ├── observability.py
     └── scheduler/jobs.py          # 단순화
 ```
@@ -244,9 +287,9 @@ app/ingestion/geocoder.py
 app/ingestion/business.py
 app/ingestion/hospital.py
 app/ingestion/pharmacy.py
-app/ingestion/client.py
+app/ingestion/client.py             ← naver.py에 fetch HTTP 헬퍼 인라인 통합 후 삭제
 app/ingestion/trend_history.py
-app/ingestion/grooming_blog.py    → blog.py로 대체
+app/ingestion/grooming_blog.py      → blog.py로 대체
 
 # serving
 app/serving/api/recommend.py
@@ -254,19 +297,23 @@ app/serving/api/facilities.py
 app/serving/api/stats.py
 app/serving/api/search.py
 app/serving/api/events.py
-app/serving/recommender/          (디렉터리 전체)
+app/serving/recommender/            (디렉터리 전체)
 
 # platform
 app/platform/core/database.py
-app/platform/models/              (디렉터리 전체)
+app/platform/models/                (디렉터리 전체)
 app/platform/schemas/facility.py
 app/platform/schemas/recommend.py
 app/platform/schemas/stats.py
 app/platform/schemas/events.py
 
 # 루트
-migrations/                       (디렉터리 전체)
+migrations/                         (디렉터리 전체 — PostgreSQL 제거)
 ```
+
+**client.py 처리:**  
+`client.py`의 `fetch_public_api()`(타임아웃·재시도 로직)를 `naver.py` 내부 private 함수로 옮긴 뒤 삭제.  
+다른 호출자(business.py, hospital.py, pharmacy.py)는 함께 삭제되므로 의존 없음.
 
 ### 환경변수
 
@@ -286,7 +333,7 @@ migrations/                       (디렉터리 전체)
 
 ---
 
-## 7. 테스트 계획
+## 8. 테스트 계획
 
 ### 삭제
 
@@ -302,7 +349,8 @@ test_ranker.py
 test_business_collector.py
 test_hospital_collector.py
 test_geocoder.py
-test_collect_api.py (부분 — popular trigger 제외)
+test_collect_api.py (부분 — popular trigger 케이스는 신규 파일로 이동)
+test_trend_history.py
 ```
 
 ### 신규
@@ -317,7 +365,7 @@ test_popular_api.py
   - GET /popular/{context} 정상 응답
   - Redis 데이터 없을 때 503
   - 미지원 context 404
-  - limit 파라미터
+  - snack/food/clothes → supplies 정규화
 
 test_score.py
   - freshness_weight(date) 계산 검증
@@ -327,9 +375,10 @@ test_score.py
 
 ---
 
-## 8. 마이그레이션 고려사항
+## 9. 마이그레이션 고려사항
 
-- **Petory 연동 변경 필요**: 기존 `POST /recommend` 호출 → `GET /popular/{context}` + `GET /trends/{context}` 두 번으로 변경
+- **Petory 연동 변경 필요**: 기존 `POST /recommend` 호출 → `GET /popular/{context}` + `GET /trends/{category}` 두 번으로 변경
+- **timeseries 엔드포인트 제거**: `GET /trends/{category}/timeseries` 사용 중인 클라이언트가 있으면 사전 공지 필요
 - **PostgreSQL 제거**: `DATABASE_URL` 불필요. 로컬 실행 시 PostgreSQL 프로세스 불필요
-- **기존 Redis 키**: `trend:*` 키는 그대로 사용. `popular:*` 키 신규 추가
+- **기존 Redis 키 유지**: `trends:{category}:keywords`, `trends:{category}:updated_at` 키는 그대로. `popular:{context}` 키 신규 추가
 - **POST /collect/trigger body 변경**: 기존 호출자(관리자)가 `targets` 파라미터 추가 필요. Petory는 이 엔드포인트를 호출하지 않으므로 영향 없음

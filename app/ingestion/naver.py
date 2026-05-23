@@ -1,8 +1,8 @@
-import re
 import asyncio
+import httpx
 import logging
+import re
 from app.platform.core.config import settings
-from app.ingestion.client import fetch_public_api
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,27 @@ CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "hotel":       ["반려동물 호텔 추천", "강아지 호텔 후기", "펫호텔 추천"],
 }
 
+_RETRY_DELAYS = [1, 2, 4]
+
+
 def _strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text)
+
+
+async def _fetch_naver(url: str, params: dict, headers: dict, timeout: int = 30) -> dict:
+    last_error: Exception | None = None
+    for delay in [0] + _RETRY_DELAYS:
+        if delay:
+            await asyncio.sleep(delay)
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.get(url, params=params, headers=headers)
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            last_error = e
+    raise last_error
+
 
 async def search_naver_blog(query: str, display: int = 100, sort: str = "sim") -> list[dict]:
     headers = {
@@ -32,7 +51,8 @@ async def search_naver_blog(query: str, display: int = 100, sort: str = "sim") -
         "X-Naver-Client-Secret": settings.NAVER_CLIENT_SECRET,
     }
     params = {"query": query, "display": display, "sort": sort}
-    data = await fetch_public_api(NAVER_BLOG_URL, params=params, headers=headers, timeout=10)
+    timeout = settings.NAVER_TIMEOUT_MS // 1000
+    data = await _fetch_naver(NAVER_BLOG_URL, params=params, headers=headers, timeout=timeout)
     items = data.get("items", [])
     return [
         {
@@ -46,7 +66,9 @@ async def search_naver_blog(query: str, display: int = 100, sort: str = "sim") -
         for i in items
     ]
 
-_NAVER_SEM_LIMIT = 4  # 카테고리당 동시 Naver API 호출 상한
+
+_NAVER_SEM_LIMIT = 4
+
 
 async def collect_category_trends(category: str) -> list[dict]:
     queries = CATEGORY_KEYWORDS.get(category, [])

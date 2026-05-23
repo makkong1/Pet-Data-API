@@ -19,6 +19,11 @@ def test_parse_freshness_over_180_days():
     assert _parse_freshness(_days_ago(181)) == 0.0
 
 
+def test_parse_freshness_future_date():
+    tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y%m%d")
+    assert _parse_freshness(tomorrow) == 0.0
+
+
 def test_parse_freshness_none():
     assert _parse_freshness(None) == 0.0
 

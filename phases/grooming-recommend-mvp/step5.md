@@ -4,7 +4,7 @@
 `FacilityItem`에 그루밍 MVP 필드를 추가하고, `/recommend` 핸들러에 `context=grooming + GROOMING_MVP_ENABLED=true` 분기를 연결한다.
 
 ## 배경
-- SSOT: `docs/GROOMING-RECOMMEND-MVP.md` §3, §1.1
+- SSOT: `docs/superpowers/specs/2026-05-23-popularity-intelligence-redesign.md`
 - 신규 필드는 기본값을 가지므로 기존 레거시 응답(비그루밍, 플래그 off)은 변경 없음.
 - `recommend_version`은 항상 문자열로 내려간다 (null 생략 금지, §3).
 

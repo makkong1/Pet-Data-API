@@ -4,7 +4,7 @@
 비그루밍 컨텍스트와 플래그 off 시 기존 계약이 깨지지 않음을 테스트로 고정하고, 플래그 on 시 그루밍 MVP 응답 형태를 검증한다.
 
 ## 배경
-- SSOT: `docs/GROOMING-RECOMMEND-MVP.md` §3.1, §2.6
+- SSOT: `docs/superpowers/specs/2026-05-23-popularity-intelligence-redesign.md`
 - 기존 `tests/test_recommend_api.py`를 확장한다. 기존 테스트는 수정하지 않는다.
 
 ## 추가할 테스트: `tests/test_recommend_api.py` 하단에 append

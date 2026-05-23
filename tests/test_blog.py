@@ -4,25 +4,32 @@ from unittest.mock import AsyncMock, patch
 
 @pytest.mark.asyncio
 async def test_extract_popular_names_cross_query_link_dedupe():
-    """동일 link가 여러 쿼리에서 반환되어도 mention_count는 1."""
+    """동일 link가 여러 쿼리에서 반환되어도 mention_count는 unique link 수만큼만 집계."""
     dup_post = {
         "title": "해피독 미용실 후기",
         "description": "해피독미용실 방문기",
         "link": "https://blog.naver.com/unique",
         "postdate": "20260501",
     }
+    # 두 번째 고유 포스트 — 같은 상호명이 mention_count >= _MIN_MENTION_COUNT(2)를 충족하도록
+    dup_post2 = {
+        "title": "해피독 미용실 재방문",
+        "description": "해피독미용실 두번째 방문기",
+        "link": "https://blog.naver.com/unique2",
+        "postdate": "20260501",
+    }
 
     async def fake_search(query, display=100, sort="sim"):
-        return [dup_post]
+        return [dup_post, dup_post2]
 
     with patch("app.ingestion.blog.search_naver_blog", side_effect=fake_search):
         from app.ingestion.blog import extract_popular_names
         result = await extract_popular_names("grooming")
 
-    # grooming has 3 queries — same link returned 3 times but deduplicated to 1
+    # grooming has 3 queries — same links returned 3 times each but deduplicated to 2 unique posts
     해피독_entries = [r for r in result if r["name"] == "해피독"]
-    if 해피독_entries:
-        assert 해피독_entries[0]["mention_count"] == 1
+    assert 해피독_entries, "해피독 should be extracted from the grooming blog post"
+    assert 해피독_entries[0]["mention_count"] == 2
 
 
 @pytest.mark.asyncio

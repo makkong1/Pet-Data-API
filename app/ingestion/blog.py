@@ -226,7 +226,7 @@ async def save_popular(context: str, results: list) -> None:
     if not results:
         return
     r = get_redis()
-    key = f"popular:{context}"
+    key = f"popular:{_normalize_context(context)}"
     await r.setex(key, POPULAR_TTL, json.dumps(results, ensure_ascii=False))
     _log.info("popular saved context=%s count=%d ttl=%d", context, len(results), POPULAR_TTL)
 

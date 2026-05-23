@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from app.serving.api.collect import router as collect_router
+from app.serving.api.popular import router as popular_router
 from app.serving.api.trends import router as trends_router
 from app.platform.scheduler.jobs import start_scheduler, stop_scheduler
 from app.platform.observability import attach_observability
@@ -22,5 +23,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 attach_observability(app)
+app.include_router(popular_router)
 app.include_router(collect_router)
 app.include_router(trends_router)

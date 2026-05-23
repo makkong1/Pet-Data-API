@@ -1,228 +1,115 @@
-# pet-data-api 사용 가이드
+# pet-data-api 실행 가이드
 
-이 문서는 레포지토리 **현재 코드**(`app/main.py`, 라우터, 마이그레이션)를 기준으로 정리했습니다. 전체 개요·아키텍처는 [`PROJECT-OVERVIEW.md`](PROJECT-OVERVIEW.md), **수집 vs API 읽기 흐름**은 [`분석/DATA-AND-API-FLOW.md`](분석/DATA-AND-API-FLOW.md), 에이전트용 요약은 루트 [`CLAUDE.md`](../CLAUDE.md)를 보세요.
+이 문서는 **현재 코드** (`app/main.py`, `app/serving/api/*`, `app/ingestion/runner.py`) 기준입니다. 인프라 최소 요구사항은 **Redis** 와 네이버 개발자 **Client ID/Secret** 입니다. PostgreSQL 마이그레이션은 **필요 없습니다.**
 
-## 이 프로젝트가 하는 일
+- 개요: [`PROJECT-OVERVIEW.md`](PROJECT-OVERVIEW.md)
+- 배치→API 흐름: [`분석/DATA-AND-API-FLOW.md`](분석/DATA-AND-API-FLOW.md)
+- 에이전트 요약: 루트 [`CLAUDE.md`](../CLAUDE.md)
 
-- **FastAPI**로 **반려동물 관련 시설** 데이터를 PostgreSQL에 저장하고, **네이버 블로그 기반 트렌드 키워드**를 Redis에 캐시하며, **API Key**로 보호된 REST API로 조회·통계·트렌드·수집을 제공합니다.
-- **data.go.kr** 공공 API 키(`PUBLIC_DATA_API_KEY`, 병원용 `HOSPITAL_API_KEY`)로 **반려동물 영업장**·**동물병원** 데이터를 가져와 `pet_facilities` 등에 **upsert**합니다.
-- **APScheduler**: 로컬 시각 **매일 18:00**에 네이버 블로그 → 형태소 분석 → Redis 트렌드 갱신(`max_instances=1`), **매일 18:05**에 공공데이터 수집.
+---
 
-## 사전 요구 사항
-
-- Python 3.x (프로젝트에 맞는 버전; 가상환경 권장)
-- PostgreSQL 15+ 권장
-- Redis (트렌드 API·스케줄 잡용)
-- data.go.kr에서 발급한 **공공데이터포털 서비스키**
-- [네이버 개발자센터](https://developers.naver.com) 검색 API용 Client ID/Secret
-
-## 설치
+## 1. 의존성 설치 · 기동
 
 ```bash
-cd /path/to/pet-data-api
-python3 -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env   # 이미 있다면 건너뜀 — 값 수정
+redis-server           # 또는 Docker 등으로 REDIS_URL 이 가리키는 인스턴스 기동
+
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## 데이터베이스 준비
+Swagger: `http://localhost:8000/docs`
 
-1. DB 생성 (예시):
+---
 
-   ```bash
-   psql -U postgres -c "CREATE DATABASE petdata;"
-   ```
+## 2. 환경 변수 (.env)
 
-2. 마이그레이션 순서대로 적용:
+| 변수 | 필수 | 설명 |
+|------|:----:|------|
+| `API_KEY_HASH` | ✓ | 일반 클라이언트용 평문 API 키의 SHA-256 hex |
+| `ADMIN_API_KEY_HASH` | ✓ | 관리자 키(수동 수집) SHA-256 hex |
+| `NAVER_CLIENT_ID` | ✓ | 네이버 블로그 검색 API |
+| `NAVER_CLIENT_SECRET` | ✓ | 위와 쌍 |
+| `REDIS_URL` | 기본값 있음 | 예: `redis://localhost:6379/0` |
+| `NAVER_TIMEOUT_MS` | 선택 | 기본 `10000` |
 
-   ```bash
-   psql -U postgres -d petdata -f migrations/init.sql
-   psql -U postgres -d petdata -f migrations/v2_pet_facilities.sql
-   psql -U postgres -d petdata -f migrations/add_facility_coords.sql
-   psql -U postgres -d petdata -f migrations/003_trend_snapshots.sql
-   psql -U postgres -d petdata -f migrations/004_facility_tags.sql
-   psql -U postgres -d petdata -f migrations/005_recommendation_log.sql
-   psql -U postgres -d petdata -f migrations/006_facility_interactions.sql
-   ```
-
-   - `init.sql`: 확장·기본 객체.
-   - `v2_pet_facilities.sql`: **`pet_facilities`**, `business_details`, `hospital_details` 테이블.
-   - `add_facility_coords.sql`: `pet_facilities.lat/lng` 컬럼.
-   - `003_trend_snapshots.sql`: 트렌드 일별 시계열 (Postgres 보존, Redis 는 핫 캐시).
-   - `004_facility_tags.sql`: 시설 태그 (검색 깊이 보조).
-   - `005_recommendation_log.sql`: 추천 호출 기록 (request_id 단위).
-   - `006_facility_interactions.sql`: Petory 콜백 노출/클릭/예약 이벤트.
-
-## 환경 변수 (`.env`)
-
-`.env.example`을 복사해 `.env`를 만들고 값을 채웁니다.
-
-```bash
-cp .env.example .env
-```
-
-| 변수 | 설명 |
-|------|------|
-| `DATABASE_URL` | SQLAlchemy 비동기 URL. 예: `postgresql+asyncpg://USER:PASSWORD@HOST:5432/petdata` |
-| `API_KEY_HASH` | 일반 API Key의 **SHA-256 해시** (hex) |
-| `ADMIN_API_KEY_HASH` | 관리자 Key의 **SHA-256 해시** — `/collect/trigger` 등에 필요 |
-| `PUBLIC_DATA_API_KEY` | data.go.kr 서비스키 (평문) |
-| `HOSPITAL_API_KEY` | 동물병원 API 서비스키 (평문) |
-| `NAVER_CLIENT_ID` / `NAVER_CLIENT_SECRET` | 네이버 검색 API |
-| `REDIS_URL` | Redis 연결 URL (기본 `redis://localhost:6379/0`) |
-
-API Key **원문**으로 쓰는 것이 아니라, 설정에는 **해시만** 넣습니다. 해시와 샘플 키 생성 예:
+해시 생성 예:
 
 ```bash
 python3 -c "import secrets,hashlib; k=secrets.token_hex(32); print('KEY=', k); print('HASH=', hashlib.sha256(k.encode()).hexdigest())"
 ```
 
-출력된 `KEY=` 값을 클라이언트에 저장하고, `HASH=` 값을 `API_KEY_HASH` 또는 `ADMIN_API_KEY_HASH`에 넣습니다.
-
-## 서버 실행
-
-```bash
-source venv/bin/activate
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-- API 문서(Swagger): `http://localhost:8000/docs`
-- 앱 제목: `Pet Data API` (`app/main.py`).
-
-## 인증
-
-모든 보호된 엔드포인트는 HTTP 헤더로 키를 넘깁니다.
-
-```http
-X-API-Key: <발급해 둔 평문 API 키>
-```
-
-- 일반 키 또는 관리자 키 해시와 일치하면 통과합니다.
-- 관리자 전용 엔드포인트는 **관리자 키**만 허용합니다. 일반 키만 맞으면 **403**이 날 수 있습니다.
-
-## API 요약
-
-| 메서드 | 경로 | 설명 | 인증 |
-|--------|------|------|------|
-| GET | `/healthz` | Liveness probe | 없음 |
-| GET | `/readyz` | Readiness probe (DB + Redis ping) | 없음 |
-| GET | `/metrics` | Prometheus 메트릭 | 없음 |
-| GET | `/facilities` | 시설 목록 (cursor 페이지네이션, 필터) | 일반/관리자 |
-| GET | `/facilities/search` | 시설 검색 (이름·태그·지역·반경, 정렬 distance/trend/name) | 일반/관리자 |
-| GET | `/facilities/{facility_id}` | 시설 상세 (`BUSINESS`/`HOSPITAL`에 따라 `details` 포함) | 일반/관리자 |
-| GET | `/stats/summary` | 시도·시군구·유형별 건수 (`영업` 상태만 집계) | 일반/관리자 |
-| GET | `/trends/{category}` | 카테고리별 인기 키워드 (Redis; `supplies`·`snack`·`food`·`grooming`·`hospital`·`clothes`) | 일반/관리자 |
-| GET | `/trends/{category}/timeseries` | 카테고리 시계열 (Postgres `trend_snapshots`, days 기본 14) | 일반/관리자 |
-| POST | `/recommend` | 맞춤 추천 (기본 `include_copy=false`, p95 < 500ms) | 일반/관리자 |
-| POST | `/recommend/copy` | LLM 추천 카피만 별도 호출 (실패 시 규칙 기반 폴백) | 일반/관리자 |
-| POST | `/events/recommendation` | Petory 노출/클릭/예약 콜백 (202 fire-and-forget) | 일반/관리자 |
-| POST | `/collect/trigger` | 수동 수집 (`scope=facilities|trends|all`) | **관리자만** |
-
-### Phase 0+ — 신규 엔드포인트 사용 예시
-
-```bash
-# 검색 — 강아지 키워드 + 서울 마포구 + 반경 3km, 거리순
-curl -s -G \
-  -H "X-API-Key: $API_KEY" \
-  --data-urlencode "q=강아지" \
-  --data-urlencode "region_city=서울특별시" \
-  --data-urlencode "region_district=마포구" \
-  --data-urlencode "lat=37.5665" --data-urlencode "lng=126.9780" \
-  --data-urlencode "radius_km=3" \
-  --data-urlencode "sort=distance" \
-  "http://localhost:8000/facilities/search"
-
-# 트렌드 시계열 (최근 14일)
-curl -s -H "X-API-Key: $API_KEY" \
-  "http://localhost:8000/trends/grooming/timeseries?days=14&top_keywords=5"
-
-# 추천 (기본 빠른 경로, LLM 없음)
-curl -s -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
-  -d '{"lat":37.5665,"lng":126.9780,"context":"grooming","radius_km":3,"top_n":5,
-       "pet":{"type":"dog","breed":"말티즈","age":"2살"}}' \
-  "http://localhost:8000/recommend"
-
-# 추천 카피만 두 번째 콜로 받기 (위 응답의 request_id·facilities 사용)
-curl -s -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
-  -d '{"context":"grooming","request_id":"<위의 request_id>",
-       "facilities":[{"name":"해피독 미용실","distance_m":320}],
-       "trends":[{"keyword":"스포팅컷","score":41}],
-       "pet":{"type":"dog","breed":"말티즈","age":"2살"}}' \
-  "http://localhost:8000/recommend/copy"
-
-# Petory 콜백 이벤트
-curl -s -X POST -H "X-API-Key: $API_KEY" -H "Content-Type: application/json" \
-  -d '{"request_id":"<recommend 응답의 request_id>",
-       "events":[
-         {"facility_id":42,"event":"view","occurred_at":"2026-05-13T10:00:00Z"},
-         {"facility_id":42,"event":"click","occurred_at":"2026-05-13T10:00:08Z"}
-       ]}' \
-  "http://localhost:8000/events/recommendation"
-```
-
-### 목록 쿼리 예시 (`/facilities`)
-
-- `cursor`: 이전 응답의 `next_cursor` (첫 요청은 `0` 또는 생략 가능)
-- `limit`: 1~100, 기본 20
-- `type`: 시설 유형 (DB의 `type`, 예: `HOSPITAL`, `BUSINESS`)
-- `region_city`, `region_district`: 지역 필터
-- `status`: 쿼리 파라미터 이름은 `status` (코드에서는 `status_filter`로 매핑)
-
-### curl 예시
-
-```bash
-export API_KEY='발급한_평문_키'
-
-curl -s -H "X-API-Key: $API_KEY" \
-  "http://localhost:8000/facilities?limit=10"
-
-curl -s -H "X-API-Key: $API_KEY" \
-  "http://localhost:8000/facilities/1"
-
-curl -s -H "X-API-Key: $API_KEY" \
-  "http://localhost:8000/stats/summary"
-
-curl -s -X POST -H "X-API-Key: $ADMIN_KEY" \
-  "http://localhost:8000/collect/trigger"
-```
-
-`POST /collect/trigger`는 `PUBLIC_DATA_API_KEY`가 유효하고 네트워크·API 응답이 정상일 때 소스별로 `collection_logs`에 기록되며, 응답은 소스별 수집 결과 리스트 형태입니다.
-
-`scope`를 지정하면 다음처럼 분리 실행할 수 있습니다.
-
-- `scope=facilities` (기본): 공공데이터 시설 수집만 실행
-- `scope=trends`: 네이버 트렌드 수집만 실행
-- `scope=all`: 트렌드 + 시설 수집 모두 실행
-
-## 자동 수집 스케줄
-
-- **매일 18:00**: 네이버 블로그 트렌드 수집·Redis 갱신(`daily_trend_collection`).
-- **매일 18:05**: 공공데이터 수집(`daily_collection`).
-- 모두 `app/platform/scheduler/jobs.py`에서 `max_instances=1`.
-- 별도 타임존 설정이 없으면 **프로세스가 돌아가는 머신의 로컬 시간** 기준입니다. 서버 배포 시 운영체제/ZONE 설정을 맞추세요.
-
-## 테스트
-
-```bash
-pytest tests/ -v
-```
-
-## 디렉터리 개요 (현재 기능 기준)
-
-| 경로 | 역할 |
-|------|------|
-| `app/main.py` | FastAPI 앱, 라우터 등록, lifespan에서 스케줄러 시작/종료 |
-| `app/serving/api/facilities.py` | 시설 목록·상세 |
-| `app/serving/api/stats.py` | 요약 통계 |
-| `app/serving/api/collect.py` | 수집 트리거 |
-| `app/serving/api/trends.py` | 트렌드 키워드 조회 |
-| `app/serving/api/recommend.py` | Petory 연동 추천 |
-| `app/ingestion/` | 공공 API·네이버 수집, runner, 지오코더 |
-| `app/ingestion/analyzer/` | 형태소·키워드 집계 (수집 경로) |
-| `app/platform/cache/` | Redis 트렌드 캐시 |
-| `app/platform/core/` | 설정, DB 세션, 인증 |
-| `migrations/` | SQL 초기화 스크립트 |
+일반 호출과 관리 호출 모두 헤더 이름은 **`X-API-Key`** 입니다. 관리 라우터는 평문 키가 `ADMIN_API_KEY_HASH` 에 대응할 때만 통과합니다.
 
 ---
 
-문제가 생기면 `DATABASE_URL`·해시·서비스키, 그리고 `psql`로 테이블 존재 여부(`pet_facilities` 등)를 먼저 확인하면 원인 파악이 빠릅니다.
+## 3. 엔드포인트 요약
+
+| 메서드 | 경로 | 인증 | 설명 |
+|--------|------|------|------|
+| GET | `/healthz` | 없음 | Liveness |
+| GET | `/readyz` | 없음 | **Redis** ping |
+| GET | `/metrics` | 없음 | Prometheus (라이브러리 있으면) |
+| GET | `/trends/{category}` | `X-API-Key` | Redis 트렌드 키워드 순위 |
+| GET | `/popular/{context}` | `X-API-Key` | Redis 인기 상호 JSON 배열 |
+| POST | `/collect/trigger` | 관리자 `X-API-Key` | JSON `{"targets":["trends","popular"]}` |
+
+### 3.1 트렌드 카테고리
+
+`app/ingestion/naver.py` 의 `CATEGORY_KEYWORDS` 키와 동일해야 합니다. 예:
+
+`supplies`, `snack`, `food`, `grooming`, `hospital`, `clothes`, `pharmacy`, `cafe`, `pension`, `restaurant`, `boarding`, `hotel`
+
+### 3.2 인기(Popularity) 컨텍스트
+
+기본 허용: `grooming`, `hospital`, `supplies`, `pharmacy`, `cafe`, `pension`, `restaurant`, `boarding`, `hotel`
+
+별칭: `snack`, `food`, `clothes` → 내부적으로 `supplies` 로 매핑.
+
+---
+
+## 4. curl 예시
+
+`API_KEY` / `ADMIN_KEY` 는 `.env` 를 만든 뒤 직전에 출력한 평문 키 문자열입니다.
+
+```bash
+export API_KEY='<일반 평문 키>'
+export ADMIN_KEY='<관리자 평문 키>'
+
+curl -s http://localhost:8000/healthz
+curl -s http://localhost:8000/readyz
+
+curl -s -H "X-API-Key: $API_KEY" "http://localhost:8000/trends/grooming?limit=10"
+curl -s -H "X-API-Key: $API_KEY" "http://localhost:8000/popular/grooming?limit=10"
+
+curl -s -X POST http://localhost:8000/collect/trigger \
+  -H "X-API-Key: $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"targets":["trends","popular"]}'
+```
+
+응답에 `collection started` 가 오면 배치가 백그라운드에서 실행됩니다. 테스트 환경에서 FastAPI/`BackgroundTasks` 동작 방식을 유의하세요.
+
+---
+
+## 5. 테스트
+
+```bash
+cd "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+source venv/bin/activate
+PYTHONPATH=. pytest tests/ -v
+```
+
+Redis 및 네이버 키가 없으면 일부 테스트는 스킵되거나 실패할 수 있습니다(프로젝트 테스트 정책에 따름).
+
+---
+
+## 6. 스케줄
+
+앱 프로세스가 살아 있는 동안 APScheduler 가 로컬 시각 기준으로:
+
+- **18:00** — `run_trend_collection`
+- **18:10** — `run_popular_collection`
+
+을 각각 실행합니다. [`../app/platform/scheduler/jobs.py`](../app/platform/scheduler/jobs.py).

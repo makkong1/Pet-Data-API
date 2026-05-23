@@ -1,5 +1,5 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from app.ingestion.runner import run_trend_collection
+from app.ingestion.runner import run_popular_collection, run_trend_collection
 
 scheduler = AsyncIOScheduler()
 
@@ -12,6 +12,14 @@ def start_scheduler():
         minute=0,
         max_instances=1,
         id="daily_trend_collection",
+    )
+    scheduler.add_job(
+        run_popular_collection,
+        trigger="cron",
+        hour=18,
+        minute=10,
+        max_instances=1,
+        id="daily_popular_collection",
     )
     scheduler.start()
 

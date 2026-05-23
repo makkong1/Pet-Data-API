@@ -2,7 +2,8 @@
   "task": "grooming-recommend-mvp",
   "description": "그루밍 추천 MVP — 공공 DB + 네이버 블로그 멘션 + Kakao Local 조합 랭킹 파이프라인",
   "branch": "feat-grooming-recommend-mvp",
-  "spec": "docs/GROOMING-RECOMMEND-MVP.md",
+  "spec": "docs/superpowers/specs/2026-05-23-popularity-intelligence-redesign.md",
+  "superseded_note": "GROOMING-RECOMMEND-MVP.md 삭제됨 — 트렌드/인기 Redis-only 아키텍처로 교체.",
   "steps": [
     {
       "id": "step1",

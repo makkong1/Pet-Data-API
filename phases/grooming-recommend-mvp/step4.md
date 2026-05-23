@@ -5,7 +5,7 @@
 `score`와 `mention_score`는 [0.0, 1.0]으로 정규화해서 반환한다.
 
 ## 배경
-- SSOT: `docs/GROOMING-RECOMMEND-MVP.md` §2.3, §2.4, §2.8
+- SSOT: `docs/superpowers/specs/2026-05-23-popularity-intelligence-redesign.md`
 - 공공 `pet_facilities`는 신뢰 소스 — 좌표·주소는 공공 DB 우선. Kakao는 멘션·거리 보조 신호.
 - RapidFuzz `ratio` 임계값 **85** (상수로 코드에 박음). `rapidsearch`가 아닌 `rapidfuzz.fuzz.ratio`.
 - `source` 값: `"public"` | `"kakao"` | `"public+kakao"`.

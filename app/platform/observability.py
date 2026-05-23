@@ -8,12 +8,10 @@ import uuid
 from typing import Awaitable, Callable
 
 from fastapi import FastAPI, Response, status
-from sqlalchemy import text
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from app.platform.cache.redis import get_redis
-from app.platform.core.database import AsyncSessionLocal
 
 REQUEST_ID_HEADER = "X-Request-Id"
 
@@ -87,18 +85,10 @@ def attach_observability(app: FastAPI) -> None:
     async def healthz():
         return {"status": "ok"}
 
-    @app.get("/readyz", tags=["health"], summary="Readiness probe (DB + Redis)")
+    @app.get("/readyz", tags=["health"], summary="Readiness probe (Redis)")
     async def readyz(response: Response):
         checks: dict[str, str] = {}
         ok = True
-
-        try:
-            async with AsyncSessionLocal() as session:
-                await session.execute(text("SELECT 1"))
-            checks["db"] = "ok"
-        except Exception as e:
-            ok = False
-            checks["db"] = f"error: {type(e).__name__}"
 
         try:
             r = get_redis()

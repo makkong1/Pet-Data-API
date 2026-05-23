@@ -5,7 +5,7 @@
 결과는 **요청 스코프 메모리**에만 유지 (DB 영구 저장 금지, §2.7).
 
 ## 배경
-- SSOT: `docs/GROOMING-RECOMMEND-MVP.md` §2.1, §2.4, §2.5
+- SSOT: `docs/superpowers/specs/2026-05-23-popularity-intelligence-redesign.md`
 - 기존 `app/ingestion/naver.py`의 `search_naver_blog()` 함수를 **재사용** (import).
 - 기존 `app/ingestion/analyzer/morpheme.py`의 `extract_nouns()` 함수를 **재사용** (import).
 - 이 파이프는 기존 트렌드 Redis 파이프(`collect_category_trends`)와 **별 트랙**이다. 트렌드 파이프 수정 금지.

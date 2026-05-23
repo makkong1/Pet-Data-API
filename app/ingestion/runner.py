@@ -1,160 +1,23 @@
-"""배치 수집 진입점: 공공 시설 적재·네이버 트렌드→Redis. API 요청 경로와 분리 — 상세 docs/INGESTION-VS-SERVING.md."""
+import logging
 
-from datetime import datetime
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
-from app.ingestion.business import fetch_all_businesses
-from app.ingestion.hospital import fetch_all_hospitals
-from app.ingestion.pharmacy import fetch_all_pharmacies
-from app.ingestion.geocoder import geocode_address
-from app.ingestion.naver import collect_category_trends, CATEGORY_KEYWORDS
+from app.ingestion.blog import collect_popular_for_context, save_popular
+from app.ingestion.naver import CATEGORY_KEYWORDS, collect_category_trends
 from app.ingestion.analyzer.trend import aggregate_keywords
-from app.ingestion.trend_history import persist_trend_snapshot
 from app.platform.cache.redis import save_trend
-from app.platform.models.log import CollectionLog
 
+_log = logging.getLogger(__name__)
 
-async def _upsert_facility(db: AsyncSession, item: dict) -> bool:
-    if not item.get("source_id"):
-        return False
-
-    # 공공 API 폐업 건은 적재하지 않음. 기존 행이 있으면 제거(CASCADE로 상세 테이블 정리).
-    if item.get("status") == "폐업":
-        await db.execute(
-            text("DELETE FROM pet_facilities WHERE source_id = :source_id"),
-            {"source_id": item["source_id"]},
-        )
-        return False
-
-    if not item.get("name"):
-        return False
-
-    facility_type = item["type"]
-
-    await db.execute(
-        text("""
-            INSERT INTO pet_facilities
-                (source_id, type, category, name, status, address,
-                 region_city, region_district, phone, collected_at)
-            VALUES
-                (:source_id, :type, :category, :name, :status, :address,
-                 :region_city, :region_district, :phone, NOW())
-            ON CONFLICT (source_id) DO UPDATE SET
-                name            = EXCLUDED.name,
-                category        = EXCLUDED.category,
-                status          = EXCLUDED.status,
-                address         = EXCLUDED.address,
-                region_city     = EXCLUDED.region_city,
-                region_district = EXCLUDED.region_district,
-                phone           = EXCLUDED.phone,
-                collected_at    = NOW()
-        """),
-        {**item, "category": item.get("category")},
-    )
-
-    result = await db.execute(
-        text("SELECT id FROM pet_facilities WHERE source_id = :source_id"),
-        {"source_id": item["source_id"]},
-    )
-    facility_id = result.scalar_one()
-
-    if facility_type == "BUSINESS":
-        await db.execute(
-            text("""
-                INSERT INTO business_details (facility_id, business_type, registration_no)
-                VALUES (:facility_id, :business_type, :registration_no)
-                ON CONFLICT (facility_id) DO UPDATE SET
-                    business_type   = EXCLUDED.business_type,
-                    registration_no = EXCLUDED.registration_no
-            """),
-            {
-                "facility_id": facility_id,
-                "business_type": item.get("business_type", ""),
-                "registration_no": item.get("registration_no"),
-            },
-        )
-    elif facility_type == "HOSPITAL":
-        await db.execute(
-            text("""
-                INSERT INTO hospital_details (facility_id, license_no, specialty)
-                VALUES (:facility_id, :license_no, :specialty)
-                ON CONFLICT (facility_id) DO UPDATE SET
-                    license_no = EXCLUDED.license_no,
-                    specialty  = EXCLUDED.specialty
-            """),
-            {
-                "facility_id": facility_id,
-                "license_no": item.get("license_no"),
-                "specialty": item.get("specialty"),
-            },
-        )
-    # 좌표 없는 시설 → geocode 시도 (실패해도 무시)
-    coord_check = await db.execute(
-        text("SELECT lat FROM pet_facilities WHERE source_id = :source_id"),
-        {"source_id": item["source_id"]},
-    )
-    if coord_check.scalar_one_or_none() is None:
-        coords = await geocode_address(item.get("address", ""))
-        if coords:
-            lat, lng = coords
-            await db.execute(
-                text("UPDATE pet_facilities SET lat = :lat, lng = :lng WHERE source_id = :source_id"),
-                {"lat": lat, "lng": lng, "source_id": item["source_id"]},
-            )
-    return True
-
-
-async def _collect_source(
-    db: AsyncSession,
-    source_name: str,
-    collect_fn,
-) -> dict:
-    log = CollectionLog(
-        source=source_name,
-        status="failed",
-        started_at=datetime.utcnow(),
-    )
-    db.add(log)
-    await db.flush()
-
-    try:
-        items = await collect_fn()
-        log.total_fetched = len(items)
-
-        saved = 0
-        for item in items:
-            if await _upsert_facility(db, item):
-                saved += 1
-
-        log.total_saved = saved
-        log.status = "success" if saved == len(items) else "partial"
-        log.finished_at = datetime.utcnow()
-        await db.commit()
-    except Exception as e:
-        await db.rollback()
-        log.error_message = str(e)
-        log.status = "failed"
-        log.finished_at = datetime.utcnow()
-        db.add(log)
-        await db.commit()
-
-    return {
-        "source": log.source,
-        "status": log.status,
-        "total_fetched": log.total_fetched,
-        "total_saved": log.total_saved,
-        "error_message": log.error_message,
-        "started_at": log.started_at,
-        "finished_at": log.finished_at,
-    }
-
-
-async def run_collection(db: AsyncSession) -> list:
-    logs = []
-    logs.append(await _collect_source(db, "petShop", fetch_all_businesses))
-    logs.append(await _collect_source(db, "animalHospital", fetch_all_hospitals))
-    logs.append(await _collect_source(db, "animalPharmacy", fetch_all_pharmacies))
-    return logs
+_POPULAR_CONTEXTS = [
+    "grooming",
+    "hospital",
+    "supplies",
+    "pharmacy",
+    "cafe",
+    "pension",
+    "restaurant",
+    "boarding",
+    "hotel",
+]
 
 
 async def run_trend_collection() -> list[dict]:
@@ -163,44 +26,22 @@ async def run_trend_collection() -> list[dict]:
         try:
             items = await collect_category_trends(category)
             counts = aggregate_keywords(items)
-            counts_dict = dict(counts)
-            await save_trend(category, counts_dict)
-
-            # Postgres 시계열 적재. 실패해도 Redis 적재는 살아 있으므로 카테고리는 success 유지.
-            snapshot_rows = 0
-            snapshot_error: str | None = None
-            try:
-                snapshot_rows = await persist_trend_snapshot(category, counts_dict)
-            except Exception as snap_err:
-                snapshot_error = str(snap_err)
-
-            entry = {
-                "category": category,
-                "status": "success",
-                "keywords_count": len(counts_dict),
-                "snapshot_rows": snapshot_rows,
-            }
-            if snapshot_error:
-                entry["snapshot_error"] = snapshot_error
-            results.append(entry)
+            await save_trend(category, dict(counts))
+            results.append({"category": category, "status": "success", "keywords_count": len(counts)})
         except Exception as e:
-            results.append({
-                "category": category,
-                "status": "failed",
-                "error_message": str(e),
-            })
+            _log.error("trend collection failed category=%s err=%s", category, e)
+            results.append({"category": category, "status": "failed", "error_message": str(e)})
     return results
 
 
-async def run_collection_by_scope(db: AsyncSession, scope: str = "facilities") -> dict:
-    if scope == "facilities":
-        return {"scope": scope, "facility_logs": await run_collection(db)}
-    if scope == "trends":
-        return {"scope": scope, "trend_logs": await run_trend_collection()}
-    if scope == "all":
-        return {
-            "scope": scope,
-            "trend_logs": await run_trend_collection(),
-            "facility_logs": await run_collection(db),
-        }
-    raise ValueError(f"Unknown collect scope: {scope}")
+async def run_popular_collection() -> list[dict]:
+    results = []
+    for context in _POPULAR_CONTEXTS:
+        try:
+            popular = await collect_popular_for_context(context)
+            await save_popular(context, popular)
+            results.append({"context": context, "status": "success", "count": len(popular)})
+        except Exception as e:
+            _log.error("popular collection failed context=%s err=%s", context, e)
+            results.append({"context": context, "status": "failed", "error_message": str(e)})
+    return results

@@ -5,7 +5,7 @@
 Redis TTL 캐시, 세마포어 동시성 제한, 후보 상한을 모두 포함한다.
 
 ## 배경
-- SSOT: `docs/GROOMING-RECOMMEND-MVP.md` §2.2, §2.2.1
+- SSOT: `docs/superpowers/specs/2026-05-23-popularity-intelligence-redesign.md`
 - 기존 `app/ingestion/geocoder.py`는 주소→좌표 변환용(address.json). 이번 클라이언트는 **키워드→장소** 검색용(keyword.json)으로 **별도 파일**로 분리한다.
 - 캐시는 기존 `app/platform/cache/redis.py`의 `get_redis()`를 재사용한다.
 - HTTP 타임아웃은 `settings.KAKAO_TIMEOUT_MS / 1000` (초 단위 변환).

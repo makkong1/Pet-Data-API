@@ -42,29 +42,16 @@ async def test_metrics_endpoint_exposed():
 
 
 @pytest.mark.asyncio
-async def test_readyz_degraded_when_db_or_redis_down():
-    """DB·Redis 둘 다 실패하는 상황에서 503 degraded 반환."""
-
-    class _FailingSession:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc, tb):
-            return False
-
-        async def execute(self, *args, **kwargs):
-            raise RuntimeError("db unavailable")
-
+async def test_readyz_degraded_when_redis_down():
+    """Redis 실패하는 상황에서 503 degraded 반환."""
     fake_redis = MagicMock()
     fake_redis.ping = AsyncMock(side_effect=RuntimeError("redis down"))
 
-    with patch("app.platform.observability.AsyncSessionLocal", return_value=_FailingSession()), \
-         patch("app.platform.observability.get_redis", return_value=fake_redis):
+    with patch("app.platform.observability.get_redis", return_value=fake_redis):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             response = await ac.get("/readyz")
 
     assert response.status_code == 503
     body = response.json()
     assert body["status"] == "degraded"
-    assert body["checks"]["db"].startswith("error")
     assert body["checks"]["redis"].startswith("error")

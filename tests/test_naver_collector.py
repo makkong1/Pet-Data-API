@@ -12,7 +12,7 @@ async def test_search_naver_blog_returns_items():
             {"title": "고양이 간식 후기", "description": "퍼스트메이트 정보"},
         ]
     }
-    with patch("app.ingestion.naver.fetch_public_api", new=AsyncMock(return_value=mock_response)):
+    with patch("app.ingestion.naver._fetch_naver", new=AsyncMock(return_value=mock_response)):
         items = await search_naver_blog("강아지 간식 추천")
 
     assert len(items) == 2
@@ -90,9 +90,37 @@ def test_category_keywords_has_required_categories():
 
 
 @pytest.mark.asyncio
+async def test_search_naver_blog_retries_on_failure():
+    """fetch 실패 시 최대 3회 재시도 후 예외 발생."""
+    call_count = 0
+
+    async def failing_get(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        raise Exception("network error")
+
+    import httpx
+    from unittest.mock import AsyncMock, patch, MagicMock
+
+    with patch("app.ingestion.naver.httpx.AsyncClient") as mock_client_cls:
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.get = failing_get
+        mock_client_cls.return_value = mock_client
+
+        with patch("app.ingestion.naver.asyncio.sleep", new=AsyncMock()):
+            with pytest.raises(Exception, match="network error"):
+                from app.ingestion.naver import search_naver_blog
+                await search_naver_blog("테스트", sort="sim")
+
+    assert call_count == 4  # 초기 1회 + 재시도 3회
+
+
+@pytest.mark.asyncio
 async def test_search_naver_blog_passes_sort_to_params():
     mock_response = {"items": []}
-    with patch("app.ingestion.naver.fetch_public_api", new=AsyncMock(return_value=mock_response)) as mock_fetch:
+    with patch("app.ingestion.naver._fetch_naver", new=AsyncMock(return_value=mock_response)) as mock_fetch:
         await search_naver_blog("강아지 간식", sort="date")
     assert mock_fetch.call_args.kwargs["params"]["sort"] == "date"
 
@@ -111,7 +139,7 @@ async def test_search_naver_blog_includes_blogger_fields():
             }
         ]
     }
-    with patch("app.ingestion.naver.fetch_public_api", new=AsyncMock(return_value=mock_response)):
+    with patch("app.ingestion.naver._fetch_naver", new=AsyncMock(return_value=mock_response)):
         items = await search_naver_blog("강아지 간식")
 
     assert items[0]["blogger_name"] == "펫블로거"

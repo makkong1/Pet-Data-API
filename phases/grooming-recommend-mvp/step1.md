@@ -5,7 +5,7 @@
 이후 모든 Step이 이 상수를 import해서 사용한다.
 
 ## 배경
-- SSOT: `docs/GROOMING-RECOMMEND-MVP.md` §1.1, §2.9
+- SSOT: `docs/superpowers/specs/2026-05-23-popularity-intelligence-redesign.md`
 - 현재 `app/platform/core/config.py`는 `KAKAO_REST_API_KEY`, `NAVER_CLIENT_ID/SECRET` 등을 이미 갖고 있다.
 - 타임아웃은 ms 단위로 정의하고 env로 덮어쓰기 가능하게 한다.
 
@@ -49,7 +49,7 @@ class Settings(BaseSettings):
 파일 끝에 아래 블록을 추가한다:
 
 ```
-# 그루밍 추천 MVP Feature flag (docs/GROOMING-RECOMMEND-MVP.md §1.1)
+# 과거 단계 레퍼런스(feature flag 삭제 전) — 신규 SSOT은 popularity-intelligence 리디자인 스펙
 GROOMING_MVP_ENABLED=false
 
 # 외부 API 타임아웃 (ms) — 운영 환경에서 덮어쓰기 가능 (§2.9)

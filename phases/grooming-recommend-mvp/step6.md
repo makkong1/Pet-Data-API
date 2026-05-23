@@ -4,7 +4,7 @@
 LLM 없이 규칙 기반 추천 문구를 생성하고, 폴백 흐름과 관측성 로그 필드를 완성한다.
 
 ## 배경
-- SSOT: `docs/GROOMING-RECOMMEND-MVP.md` §4.2, §4.3, §2.6
+- SSOT: `docs/superpowers/specs/2026-05-23-popularity-intelligence-redesign.md`
 - LLM(Ollama)은 이 단계에서 사용하지 않는다. 비그루밍 컨텍스트의 레거시 LLM 호출은 유지.
 - 폴백: Kakao 실패 → 공공만 (Step 5에서 처리됨), 블로그 실패 → mention=0 (Step 5 처리됨), LLM 없음 → 규칙 문구만.
 - 관측성 로그는 PII·원문 스니펫 포함 금지 (카운터·ms만).

@@ -79,5 +79,7 @@ async def test_collect_popular_for_context_aliases_supplies():
         from app.ingestion.blog import collect_popular_for_context
         await collect_popular_for_context("snack")
 
-    # snack → supplies → 8 queries (supplies2+snack2+food2+clothes2)
-    assert len(called_queries) == 8
+    # snack → supplies → supplies(4)+snack(3)+food(3)+clothes(3) = 13
+    from app.ingestion.naver import CATEGORY_KEYWORDS
+    expected = sum(len(CATEGORY_KEYWORDS[k]) for k in ("supplies", "snack", "food", "clothes"))
+    assert len(called_queries) == expected

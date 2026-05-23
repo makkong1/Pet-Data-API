@@ -10,9 +10,10 @@ from app.platform.core.config import settings
 from app.platform.cache.redis import get_redis
 
 KAKAO_KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
-_KAKAO_PLACE_TTL = 600  # §2.2.1
-_CANDIDATE_CAP = 20     # §2.2
+_KAKAO_PLACE_TTL = 600   # §2.2.1
+_CANDIDATE_CAP = 20      # §2.2
 _SEMAPHORE = asyncio.Semaphore(5)  # §2.2 동시성 제한
+_KAKAO_SEARCH_RADIUS = 5000  # Kakao 키워드 검색 반경(m) — 20km → 5km로 축소해 동명 타업체 혼입 방지
 
 _CONTEXT_ALIASES = {
     "snack": "supplies",
@@ -101,7 +102,7 @@ async def _call_kakao(name: str, lat: float, lng: float, context: str = "groomin
         "query": _build_query(name, context=context),
         "x": str(lng),
         "y": str(lat),
-        "radius": 20000,
+        "radius": _KAKAO_SEARCH_RADIUS,
         "size": 5,
         "sort": "distance",
     }

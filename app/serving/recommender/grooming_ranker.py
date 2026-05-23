@@ -168,7 +168,20 @@ def rank_grooming_facilities(
                     _log.debug("grooming_ranker [%s] skip hospital (kakao) name=%s", rid, place["name"])
                     continue
                 # Kakao 단독 후보
-                m_info = mention_map.get(candidate_name, {})
+                # 블로그 후보명과 Kakao 업체명이 유사할 때만 멘션 이관 — 동명 타업체에 오귀속 방지
+                if _is_same_facility(candidate_name, place["name"]) or _is_mention_of_facility(
+                    candidate_name, place["name"]
+                ):
+                    m_info = mention_map.get(candidate_name, {})
+                else:
+                    m_info = {}
+                    _log.debug(
+                        "grooming_ranker [%s] kakao_name_mismatch candidate=%s kakao=%s dist_m=%.0f",
+                        rid,
+                        candidate_name,
+                        place["name"],
+                        dist,
+                    )
                 entry = {
                     "name": place["name"],
                     "address": place["address"],

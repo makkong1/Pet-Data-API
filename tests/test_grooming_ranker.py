@@ -210,3 +210,46 @@ def test_nini_mention_maps_to_facility():
     assert result[0]["name"] == "니니 애견 미용실"
     assert result[0]["mention_count"] == 3
     assert result[0]["source"] == "public+kakao"
+
+
+def test_kakao_name_mismatch_no_mention_propagation():
+    """Kakao 반환 업체명이 블로그 후보명과 다를 때 mention_count를 이관하지 않는다.
+
+    실제 관찰 케이스: 블로그 후보 '해피독' 검색 → Kakao '강아지미용실' 반환.
+    '강아지미용실'은 '해피독'과 무관한 업체이므로 mention_count=0이어야 함.
+    """
+    mention_map = {"해피독": {"count": 5, "freshness": 0.9}}
+    kakao_map = {
+        "해피독": [{"name": "강아지미용실", "address": "서울 중랑구 중랑역로 226", "lat": 37.613, "lng": 127.075}]
+    }
+    result = rank_grooming_facilities(
+        public_facilities=[],
+        kakao_map=kakao_map,
+        mention_map=mention_map,
+        user_lat=37.610,
+        user_lng=127.070,
+        radius_m=3000,
+        top_n=5,
+    )
+    assert len(result) == 1
+    assert result[0]["name"] == "강아지미용실"
+    assert result[0]["mention_count"] == 0
+
+
+def test_kakao_name_match_mention_propagated():
+    """Kakao 반환 업체명이 블로그 후보명과 유사하면 mention_count가 이관된다."""
+    mention_map = {"해피독미용실": {"count": 4, "freshness": 0.8}}
+    kakao_map = {
+        "해피독미용실": [{"name": "해피독 미용실", "address": "서울 강남구", "lat": 37.567, "lng": 126.979}]
+    }
+    result = rank_grooming_facilities(
+        public_facilities=[],
+        kakao_map=kakao_map,
+        mention_map=mention_map,
+        user_lat=USER_LAT,
+        user_lng=USER_LNG,
+        radius_m=RADIUS_M,
+        top_n=5,
+    )
+    assert len(result) == 1
+    assert result[0]["mention_count"] == 4

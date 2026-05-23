@@ -5,8 +5,14 @@ from app.ingestion.kakao import (
     _normalize_name,
     _coord_grid,
     _cache_key,
+    _KAKAO_SEARCH_RADIUS,
     search_kakao_places,
 )
+
+
+def test_kakao_search_radius_is_limited():
+    """Kakao 검색 반경이 5000m 이하 — 동명 타업체 혼입 방지."""
+    assert _KAKAO_SEARCH_RADIUS <= 5000
 
 
 def test_normalize_name():

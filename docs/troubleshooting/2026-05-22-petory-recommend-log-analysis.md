@@ -25,11 +25,13 @@
 세 요청 모두 동일 파라미터, 모두 200 반환. 재시도가 아니라 **중복 발송**에 가깝다.
 
 **가능한 원인**
+
 - Petory 클라이언트 타임아웃이 짧아서 응답 수신 전에 재시도를 트리거
 - 비동기 병렬 호출 코드에서 중복 dispatch
 - Petory 내부 retry 정책이 200에도 재시도하도록 잘못 설정
 
 **조치 방향**
+
 - Petory 쪽에서 request_id 기반 중복 제거 또는 debounce 추가
 - 파이썬 서버 쪽에서 단기 응답 캐시(`request_id` 또는 파라미터 해시 기준, TTL 2s)로 방어 가능하나 클라이언트 수정이 우선
 
@@ -37,11 +39,11 @@
 
 ## 관찰 2 — Kakao Redis 캐시 효과 정상 동작 ✅
 
-| 요청 | blog | kakao | total |
-|------|------|-------|-------|
-| 1번 (6a08a7) | 431ms | 383ms | **889ms** |
-| 2번 (2a99af) | 394ms | **37ms** | 449ms |
-| 3번 (3c690d) | 196ms | **6ms** | 211ms |
+| 요청         | blog  | kakao    | total     |
+| ------------ | ----- | -------- | --------- |
+| 1번 (6a08a7) | 431ms | 383ms    | **889ms** |
+| 2번 (2a99af) | 394ms | **37ms** | 449ms     |
+| 3번 (3c690d) | 196ms | **6ms**  | 211ms     |
 
 - kakao: 383ms → 37ms → 6ms. 1번 이후 Redis TTL 캐시 히트.
 - blog: 431ms → 394ms → 196ms. 네이버 API 응답 자체가 빨라지거나 세마포어 대기 없이 통과.
@@ -52,7 +54,12 @@
 ## 관찰 3 — "우솔동물병원"이 grooming 결과에 포함 🟠
 
 ```json
-{"name": "우솔동물병원", "source": "public", "score": 0.3623, "reasons": ["distance"]}
+{
+  "name": "우솔동물병원",
+  "source": "public",
+  "score": 0.3623,
+  "reasons": ["distance"]
+}
 ```
 
 `reasons`에 `distance` 하나만 있음 — mention·trend_match 없이 반경 안에 있다는 이유만으로 상위 5개에 포함.
@@ -61,7 +68,8 @@
 공공 DB `pet_facilities.type`이 `HOSPITAL`인 시설이 `grooming` 컨텍스트 반경 쿼리에서 걸러지지 않음.  
 `get_nearby_facilities`의 `context→type` 필터가 grooming에 대해 HOSPITAL을 명시적으로 제외하지 않는 것으로 추정.
 
-**조치 방향**  
+**조치 방향**
+
 - `get_nearby_facilities`에서 `context=grooming`일 때 `type != 'HOSPITAL'` 조건 추가
 - 또는 grooming 전용 `CONTEXT_TO_FACILITY_TYPE` 매핑을 `BUSINESS`로 제한
 
@@ -70,7 +78,12 @@
 ## 관찰 4 — "니니 애견 미용실" mention_count=0 🟠
 
 ```json
-{"name": "니니 애견 미용실", "mention_count": 0, "source": "public", "score": 0.5144}
+{
+  "name": "니니 애견 미용실",
+  "mention_count": 0,
+  "source": "public",
+  "score": 0.5144
+}
 ```
 
 Phase 2a에서 `"니니 애견 미용실"` 텍스트에서 `"니니"`를 추출하도록 suffix bridge 패턴을 수정했다.  
@@ -80,7 +93,8 @@ Phase 2a에서 `"니니 애견 미용실"` 텍스트에서 `"니니"`를 추출�
 `grooming_ranker`의 mention 매핑 로직이 **완전 일치(exact)** 또는 **포함(substring)** 기준인데,  
 `"니니 애견 미용실".contains("니니")` 는 참이지만 `"니니"` 가 너무 짧아 신뢰도가 낮거나, 역방향(`mention_map["니니"]` 가 시설명과 매핑되는 로직)이 없는 것으로 보임.
 
-**조치 방향**  
+**조치 방향**
+
 - `grooming_ranker`에서 시설명 → 후보명 fuzzy 매핑 추가 (시설명이 후보명을 포함하거나, 후보명이 시설명에 포함되는 경우)
 - 단, 너무 짧은 후보명(2-3자)은 오매핑 위험 있으므로 최소 길이 임계치(4자 이상 권장) 적용
 
@@ -96,7 +110,8 @@ candidate_raw=20 after_cap=20  (3번 모두)
 Phase 2a로 파편이 줄었다면 유효 후보 밀도는 높아졌을 것이나,  
 실제로 20개 전부가 실존 업장인지 아직 확인 안 됨.
 
-**조치 방향**  
+**조치 방향**
+
 - 실제 mention_map 키 목록을 한 번 덤프해서 유효 상호명 vs 노이즈 비율 측정
 - 필요 시 `_CANDIDATE_CAP`을 높이거나 `_MIN_MENTION_COUNT` 기준을 올려 품질 필터링 강화
 
@@ -111,8 +126,10 @@ _log.info("recommend response: %s", response.model_dump_json())
 주소·위도·경도 포함 전체 응답이 로그에 찍힘.  
 개발 중에는 유용하나 운영 시 로그 크기 및 개인정보(주소) 노출 문제.
 
-**조치 방향**  
+**조치 방향**
+
 운영 전 아래처럼 요약 로그로 교체:
+
 ```python
 _log.info(
     "[%s] recommend response facilities=%d recommendation_len=%s version=%s",
@@ -137,14 +154,14 @@ _log.info(
 
 ## 우선순위 요약 (1차 — 12:08 로그 기준)
 
-| # | 이슈 | 심각도 | 조치 대상 |
-|---|------|--------|-----------|
-| 1 | Petory 3중 중복 호출 | 🔴 High | Petory 클라이언트 |
-| 2 | 동물병원이 grooming 결과에 포함 | 🟠 Medium | `get_nearby_facilities` 타입 필터 |
-| 3 | 니니 mention 매핑 누락 | 🟠 Medium | `grooming_ranker` fuzzy 매핑 |
-| 4 | candidate_raw 상시 포화 | 🟡 Low | 품질 측정 후 판단 |
-| 5 | response 전체 JSON 로그 | 🟡 Low | 운영 전 교체 |
-| 6 | 로그 인터리빙 | ℹ️ Info | 현재 구조상 정상 |
+| #   | 이슈                            | 심각도    | 조치 대상                         |
+| --- | ------------------------------- | --------- | --------------------------------- |
+| 1   | Petory 3중 중복 호출            | 🔴 High   | Petory 클라이언트                 |
+| 2   | 동물병원이 grooming 결과에 포함 | 🟠 Medium | `get_nearby_facilities` 타입 필터 |
+| 3   | 니니 mention 매핑 누락          | 🟠 Medium | `grooming_ranker` fuzzy 매핑      |
+| 4   | candidate_raw 상시 포화         | 🟡 Low    | 품질 측정 후 판단                 |
+| 5   | response 전체 JSON 로그         | 🟡 Low    | 운영 전 교체                      |
+| 6   | 로그 인터리빙                   | ℹ️ Info   | 현재 구조상 정상                  |
 
 ---
 
@@ -157,11 +174,13 @@ _log.info(
 ### 관찰 A — mention_map 노이즈 1차 감소 ✅ (부분)
 
 **이전 top sample:**
+
 ```
 ('원반려동물', 17), ('안산', 14), ('가능한', 7), ('강남', 5), ('대전', 4), ('편안한', 4), ('동반', 4), ('있는', 4)
 ```
 
 **현재 top sample (grooming):**
+
 ```
 ('맘바이강아지', 4), ('화원강아지', 4), ('강남강아지', 2), ('광안리', 2), ('부산강아지', 2),
 ('좋은', 2), ('다른', 2), ('창원', 2), ('창원강아지', 2), ('강아지미용실', 2)
@@ -171,6 +190,7 @@ _log.info(
 - `강아지미용실`(×2) 이 mention_map에 포함 → `강아지미용실` 시설 mention_count=2, mention_score=1.0 으로 정상 매핑 ✅
 
 **남은 노이즈 (미처리):**
+
 - `좋은`(2), `다른`(2) — 형용사. grammar ending 필터에 `은`, `른` 미포함
 - `광안리`(2) — 부산 지역명. `_LOCATION_SUFFIX`가 `리$` 미포함, `_LOCATION_CITY`에도 없음
 - `창원`(2) — 시 이름. `_LOCATION_CITY` 누락
@@ -186,6 +206,7 @@ _log.info(
 - 노이즈 필터로 `이쁘개멋있개`·`알라꿀`이 mention_map에서 탈락하거나 count < 2 로 내려가 Kakao 검색 대상에서 제외됨 → 원거리 고mention 시설이 사라지고 가까운 저mention 공공 시설이 채움
 
 **신규 이슈:**
+
 - `고양이미용실 냥냥박사` — **고양이 전용 미용실**이 grooming(강아지 대상) 결과에 포함 🟠
   - 공공 DB `category=grooming`으로 적재됐으나 시설명에 '고양이' 포함
   - `grooming_ranker`에 `고양이` 키워드 이름 필터 추가 또는 pet.type 매칭 신호 강화 검토
@@ -217,7 +238,12 @@ hospital context는 `_CONTEXT_QUERIES`·`_CONTEXT_HINTS`·블록리스트 모두
 ### 관찰 E — hospital returned=1, 시설명 이상 🟠
 
 ```json
-{"name": "치료해 주오", "distance_m": 385, "mention_count": 0, "source": "public"}
+{
+  "name": "치료해 주오",
+  "distance_m": 385,
+  "mention_count": 0,
+  "source": "public"
+}
 ```
 
 - `치료해 주오` = 문장형 이름 ("치료해 주오" → "please heal me"). 공공 DB 데이터 품질 문제.
@@ -227,15 +253,15 @@ hospital context는 `_CONTEXT_QUERIES`·`_CONTEXT_HINTS`·블록리스트 모두
 
 ## 우선순위 요약 (갱신 — 2차 관찰 포함)
 
-| # | 이슈 | 심각도 | 상태 | 조치 대상 |
-|---|------|--------|------|-----------|
-| 1 | Petory 3중 중복 호출 | 🔴 High | 미해결 | Petory 클라이언트 |
-| 2 | hospital mention_map 노이즈 (`입니다`, `다녀온`, `24시` 복합어 등) | 🔴 High | 신규 | `grooming_blog.py` hospital 필터 |
-| 3 | grooming mention_map 잔존 노이즈 (`좋은`, `광안리`, `창원`, 지역+강아지 복합어) | 🟠 Medium | 진행중 | `grooming_blog.py` grammar/location 확장 |
-| 4 | 고양이미용실이 grooming 결과에 포함 | 🟠 Medium | 신규 | `grooming_ranker` 고양이 키워드 필터 |
-| 5 | 니니 mention=0 (블로그 추출 미포함) | 🟠 Medium | 미해결 | 쿼리 확장 또는 _MIN_MENTION_COUNT 완화 검토 |
-| 6 | hospital returned=1 / `치료해 주오` 이상 시설명 | 🟠 Medium | 신규 | 공공 DB 데이터 점검, hospital 랭킹 조정 |
-| 7 | 동물병원이 grooming 결과에 포함 | ✅ 해결 | `grooming_ranker` 병원 키워드 필터 |
-| 8 | candidate_raw 상시 포화 | 🟡 Low | 유지 | 품질 개선으로 자연 해소 기대 |
-| 9 | response 전체 JSON 로그 | 🟡 Low | 유지 | 운영 전 교체 |
-| 10 | 로그 인터리빙 | ℹ️ Info | 정상 | — |
+| #   | 이슈                                                                            | 심각도    | 상태                               | 조치 대상                                    |
+| --- | ------------------------------------------------------------------------------- | --------- | ---------------------------------- | -------------------------------------------- |
+| 1   | Petory 3중 중복 호출                                                            | 🔴 High   | 미해결                             | Petory 클라이언트                            |
+| 2   | hospital mention_map 노이즈 (`입니다`, `다녀온`, `24시` 복합어 등)              | 🔴 High   | 신규                               | `grooming_blog.py` hospital 필터             |
+| 3   | grooming mention_map 잔존 노이즈 (`좋은`, `광안리`, `창원`, 지역+강아지 복합어) | 🟠 Medium | 진행중                             | `grooming_blog.py` grammar/location 확장     |
+| 4   | 고양이미용실이 grooming 결과에 포함                                             | 🟠 Medium | 신규                               | `grooming_ranker` 고양이 키워드 필터         |
+| 5   | 니니 mention=0 (블로그 추출 미포함)                                             | 🟠 Medium | 미해결                             | 쿼리 확장 또는 \_MIN_MENTION_COUNT 완화 검토 |
+| 6   | hospital returned=1 / `치료해 주오` 이상 시설명                                 | 🟠 Medium | 신규                               | 공공 DB 데이터 점검, hospital 랭킹 조정      |
+| 7   | 동물병원이 grooming 결과에 포함                                                 | ✅ 해결   | `grooming_ranker` 병원 키워드 필터 |
+| 8   | candidate_raw 상시 포화                                                         | 🟡 Low    | 유지                               | 품질 개선으로 자연 해소 기대                 |
+| 9   | response 전체 JSON 로그                                                         | 🟡 Low    | 유지                               | 운영 전 교체                                 |
+| 10  | 로그 인터리빙                                                                   | ℹ️ Info   | 정상                               | —                                            |

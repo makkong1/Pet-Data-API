@@ -7,6 +7,7 @@ from app.platform.core.config import settings
 _log = logging.getLogger(__name__)
 
 NAVER_BLOG_URL = "https://openapi.naver.com/v1/search/blog.json"
+NAVER_LOCAL_URL = "https://openapi.naver.com/v1/search/local.json"
 
 CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "supplies":    ["반려동물 용품점 추천", "펫샵 추천", "애견용품점 후기", "반려동물 용품 잘하는 곳"],
@@ -136,6 +137,34 @@ async def search_naver_blog(query: str, display: int = 100, sort: str = "sim") -
         }
         for i in items
     ]
+
+
+async def search_naver_local(query: str, display: int = 3) -> list[dict]:
+    """Naver 장소 검색 — 상호명·주소·좌표 반환."""
+    headers = {
+        "X-Naver-Client-Id": settings.NAVER_CLIENT_ID,
+        "X-Naver-Client-Secret": settings.NAVER_CLIENT_SECRET,
+    }
+    params = {"query": query, "display": display}
+    timeout = settings.NAVER_TIMEOUT_MS // 1000
+    try:
+        data = await _fetch_naver(NAVER_LOCAL_URL, params=params, headers=headers, timeout=timeout)
+        items = data.get("items", [])
+        return [
+            {
+                "title": _strip_html(i.get("title", "")),
+                "category": i.get("category", ""),
+                "address": i.get("address", ""),
+                "road_address": i.get("roadAddress", ""),
+                "map_x": i.get("mapx", ""),
+                "map_y": i.get("mapy", ""),
+                "telephone": i.get("telephone", ""),
+            }
+            for i in items
+        ]
+    except Exception as exc:
+        _log.warning("naver_local search_failed query=%r err=%s", query, exc)
+        return []
 
 
 _NAVER_SEM_LIMIT = 4

@@ -91,6 +91,16 @@ raw_score(e) = log1p(mention_count(e)) × avg_freshness(e)
 ```
 v1에서는 적용하지 않는다. 운영 데이터 보고 판단.
 
+**엣지 케이스 — max(raw_score) == 0:**
+```
+모든 후보 포스팅이 180일을 초과하면 avg_freshness = 0.0 → raw_score = 0.0
+→ max(raw_score) = 0 → 0으로 나누기 발생
+
+처리 정책:
+  max(raw_score) < ε (예: 1e-9) 이면 popular:{context} 갱신 생략
+  (§4 실패 처리의 "후보 0개" 케이스와 동일하게 이전 스냅샷 유지)
+```
+
 ---
 
 ## 4. 배치 파이프라인
@@ -98,8 +108,17 @@ v1에서는 적용하지 않는다. 운영 데이터 보고 판단.
 ### 호출량
 
 ```
-9 contexts × 평균 2~3 쿼리 = 약 22~27 HTTP 요청/일
-(supplies는 snack·food·clothes 쿼리까지 포함해 최대 8쿼리)
+─── 인기(popular) 배치 ───────────────────────────────────────────
+9 contexts, 총 28쿼리 × 1정렬(sim) = 28 HTTP 요청/일
+  grooming  3  hospital  2  supplies 8(=supplies2+snack2+food2+clothes2)
+  pharmacy  2  cafe      3  pension  2  restaurant 3  boarding 2  hotel 3
+
+─── 트렌드(trends) 배치 ──────────────────────────────────────────
+12 categories, 총 28쿼리 × 2정렬(sim+date) = 56 HTTP 요청/일
+  naver.py collect_category_trends 가 쿼리당 sim·date 두 번 호출
+
+─── 하루 총합 ────────────────────────────────────────────────────
+28 + 56 = 84 HTTP 요청/일
 Naver 블로그 API 일일 한도: 25,000회 → 여유 충분
 각 요청: display=100 (페이지네이션 없음)
 ```
@@ -108,6 +127,12 @@ Naver 블로그 API 일일 한도: 25,000회 → 여유 충분
 
 ```
 Naver Blog API (query당 최대 100건)
+    ↓
+[모든 쿼리 결과 수집 후 link 기준 전역 dedupe]
+  supplies처럼 쿼리가 여러 개일 때 같은 글이 중복 반환될 수 있음.
+  mention_count = 고유 글 수 정의를 지키려면
+  "개별 쿼리 결과를 합친 뒤 link로 먼저 dedupe → 이후 상호명 추출"
+  순서여야 한다.
     ↓
 제목 + 스니펫 텍스트
     ↓
@@ -119,7 +144,7 @@ Naver Blog API (query당 최대 100건)
     GRAMMAR_ENDING / 최소 한글 2자 이상
     → _is_valid_name() 통과한 것만
     ↓
-중복 처리: 같은 글(link)에서 동일 상호 → 1표만
+중복 처리: 같은 글(link)에서 동일 상호 → 1표만 (위 전역 dedupe 이후에도 적용)
     ↓
 집계: mention_count >= 2 미만 제거 (노이즈)
 상위 20개만 유지 (score 내림차순)
@@ -254,7 +279,9 @@ Response 202:
 
 ```
 app/
-├── main.py                        # 라우터 3개
+├── main.py                        # 라우터 3개, lifespan = 스케줄러만
+│                                  # database.py 삭제로 AsyncSessionLocal import 제거
+│                                  # (현 lifespan에 DB 직접 호출 없음, jobs.py에서만 제거)
 ├── ingestion/
 │   ├── naver.py                   # Naver API 클라이언트 + fetch HTTP 헬퍼 통합
 │   ├── blog.py                    # grooming_blog.py → 리네임·일반화
@@ -265,7 +292,9 @@ app/
 ├── serving/
 │   └── api/
 │       ├── popular.py             # 신규
-│       ├── trends.py              # timeseries 엔드포인트 제거, 나머지 유지
+│       ├── trends.py              # timeseries 엔드포인트 제거
+│                                  # get_db / AsyncSession import 제거
+│                                  # (기본 엔드포인트는 Redis만 사용 → 변경 최소)
 │       └── collect.py             # targets 파라미터 추가
 └── platform/
     ├── cache/redis.py
@@ -275,7 +304,7 @@ app/
     ├── schemas/
     │   └── popular.py             # 신규 (기존 스키마 파일 전부 삭제)
     ├── observability.py
-    └── scheduler/jobs.py          # 단순화
+    └── scheduler/jobs.py          # AsyncSessionLocal / run_collection 제거
 ```
 
 ### 삭제 목록
@@ -382,3 +411,15 @@ test_score.py
 - **PostgreSQL 제거**: `DATABASE_URL` 불필요. 로컬 실행 시 PostgreSQL 프로세스 불필요
 - **기존 Redis 키 유지**: `trends:{category}:keywords`, `trends:{category}:updated_at` 키는 그대로. `popular:{context}` 키 신규 추가
 - **POST /collect/trigger body 변경**: 기존 호출자(관리자)가 `targets` 파라미터 추가 필요. Petory는 이 엔드포인트를 호출하지 않으므로 영향 없음
+- **외부 문서 일괄 정리 필요**: 아래 파일에서 `/recommend`, `/facilities`, `/stats`, `timeseries`, 공공 DB, Kakao, LLM 언급 제거 또는 재작성
+
+  | 파일 | 처리 |
+  |------|------|
+  | `docs/PROJECT-OVERVIEW.md` | 엔드포인트 표·역할 설명 전면 재작성 |
+  | `docs/USAGE.md` | `/recommend`, `/facilities` curl 예시 제거, `/popular` 예시 추가 |
+  | `docs/ARCHITECTURE.md` | 시스템 구조도 재작성 |
+  | `docs/GROOMING-RECOMMEND-MVP.md` | 전체 삭제 (grooming MVP 폐기) |
+  | `docs/INGESTION-VS-SERVING.md` | 전체 삭제 또는 단순 배치/서빙 구조로 재작성 |
+  | `docs/PETORY-INTEGRATION.md` | `/recommend` → `/popular` + `/trends` 호출 방식으로 업데이트 |
+  | `docs/V3-CHANGES.md` | 이번 재설계 내용으로 교체 또는 삭제 |
+  | `CLAUDE.md` | 엔드포인트 요약표, 기술 스택(PostgreSQL·Kakao·LLM) 항목 수정 |

@@ -2,6 +2,7 @@ import asyncio
 import httpx
 import logging
 import re
+from typing import Optional
 from app.platform.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ def _strip_html(text: str) -> str:
 
 
 async def _fetch_naver(url: str, params: dict, headers: dict, timeout: int = 30) -> dict:
-    last_error: Exception | None = None
+    last_error: Optional[Exception] = None
     for delay in [0] + _RETRY_DELAYS:
         if delay:
             await asyncio.sleep(delay)

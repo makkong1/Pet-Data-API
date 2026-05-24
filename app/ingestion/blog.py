@@ -11,7 +11,17 @@ _log = logging.getLogger(__name__)
 
 # ── 점수 상수 ──────────────────────────────────────────────────────────
 _FRESHNESS_WINDOW_DAYS = 180
-_MIN_MENTION_COUNT = 2
+_MIN_MENTION_COUNT: dict = {
+    "grooming":   2,
+    "hospital":   2,
+    "supplies":   2,
+    "pharmacy":   2,
+    "cafe":       1,
+    "pension":    2,
+    "restaurant": 1,
+    "boarding":   1,
+    "hotel":      2,
+}
 _TOP_N = 20
 _EPS = 1e-9
 
@@ -81,7 +91,18 @@ _PREFIX_PATTERNS: dict = {
         re.compile(r"반려동물\s*동반\s*가능한?\s+([가-힣a-zA-Z0-9]{2,12})"),
     ],
     "pension":    [re.compile(r"(?:반려동물펜션|애견펜션)\s*([가-힣a-zA-Z0-9]{2,8})")],
-    "restaurant": [re.compile(r"(?:반려동물동반|애견동반)\s*([가-힣a-zA-Z0-9]{2,8})")],
+    "restaurant": [
+        # "반려동물동반/애견동반 [상호명]" — 붙여쓰기 뒤 상호명
+        re.compile(r"(?:반려동물동반|애견동반)\s+([가-힣a-zA-Z0-9]{2,12})"),
+        # "반려동물 동반 가능[한] [상호명]" — 무무무, 평상마루
+        re.compile(r"반려동물\s*동반\s*가능한?\s+([가-힣a-zA-Z0-9]{2,12})"),
+        # "애견동반 [수식어]맛집 [상호명]" — 건대 야식맛집 맛닭꼬, 애견동반 맛집 마니산산채
+        re.compile(r"애견동반\s+\S{0,6}맛집\s+([가-힣a-zA-Z0-9]{2,12})"),
+        # "반려동물 동반 맛집 [상호명]" — 여수 반려동물 동반 맛집 명동게장
+        re.compile(r"반려동물\s*동반\s*맛집\s+([가-힣a-zA-Z0-9]{2,12})"),
+        # "강아지동반 [식당유형] [상호명]" — 강아지동반식당 오비피씨
+        re.compile(r"강아지\s*동반\s*(?:식당|맛집|브런치집|국수집|삼겹살집)\s+([가-힣a-zA-Z0-9]{2,12})"),
+    ],
     "hotel": [
         re.compile(r"(?:펫호텔|반려동물호텔)\s*([가-힣a-zA-Z0-9]{2,8})"),
         # "반려동물 동반 호텔 [추천] [상호명]" — 제목에서 상호명이 뒤에 오는 패턴
@@ -113,7 +134,9 @@ _BLOCKLIST_EXACT = frozenset([
     # 지명 (단독 등장 시 — _LOCATION_CITY 미등록 도시)
     "안성", "포천",
     # 음식점·숙박 카테고리 키워드
-    "식당", "레스토랑", "맛집", "카페", "호텔", "리조트",
+    "식당", "레스토랑", "맛집", "카페", "호텔", "리조트", "펜션", "사찰",
+    # 음식 스타일·업종 유형명 (restaurant prefix 패턴 확장 후 FP)
+    "양식", "채식", "전통주", "디저트", "이탈리안", "인기", "술집", "총정리",
     # 서비스 유형 명사
     "펫시터", "프리미엄",
     # 약품명 (pharmacy prefix 패턴이 캡처)
@@ -240,12 +263,13 @@ def _parse_freshness(postdate: Optional[str]) -> float:
         return 0.0
 
 
-def _compute_scores(aggregator: dict) -> list:
+def _compute_scores(aggregator: dict, context: str = "") -> list:
     """aggregator: {name: {"count": int, "freshness_sum": float}}"""
+    min_count = _MIN_MENTION_COUNT.get(context, 2)
     entries = [
         (name, info)
         for name, info in aggregator.items()
-        if info["count"] >= _MIN_MENTION_COUNT
+        if info["count"] >= min_count
     ]
     if not entries:
         return []
@@ -312,7 +336,7 @@ async def extract_popular_names(context: str) -> list:
 
     _log.info("blog extract done context=%s unique_posts=%d candidates=%d",
               normalized, len(unique_items), len(aggregator))
-    return _compute_scores(aggregator)
+    return _compute_scores(aggregator, normalized)
 
 
 async def save_popular(context: str, results: list) -> None:

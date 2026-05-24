@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timezone
 
 from app.ingestion.blog import collect_popular_for_context, save_popular
+from app.ingestion.local_discovery import collect_popular_local_discovery
 from app.ingestion.location import enrich_with_location
 from app.ingestion.naver import CATEGORY_KEYWORDS, collect_category_trends
 from app.ingestion.analyzer.trend import aggregate_keywords
@@ -22,6 +23,10 @@ _POPULAR_CONTEXTS = [
     "boarding",
     "hotel",
 ]
+
+# 이 context는 Local discovery → Blog verify 2단계 파이프라인 사용.
+# enrich_with_location 스킵 (위치 정보가 discover 단계에 이미 포함).
+_LOCAL_DISCOVERY_CONTEXTS = {"boarding", "hotel"}
 
 
 async def run_trend_collection() -> list[dict]:
@@ -79,13 +84,17 @@ async def run_popular_collection() -> list[dict]:
     ok = failed = skipped = 0
     for context in _POPULAR_CONTEXTS:
         try:
-            popular = await collect_popular_for_context(context)
+            if context in _LOCAL_DISCOVERY_CONTEXTS:
+                popular = await collect_popular_local_discovery(context)
+            else:
+                popular = await collect_popular_for_context(context)
             if not popular:
                 idlog.log_popular_empty(context)
                 results.append({"context": context, "status": "skipped_empty", "count": 0})
                 skipped += 1
                 continue
-            popular = await enrich_with_location(popular, context)
+            if context not in _LOCAL_DISCOVERY_CONTEXTS:
+                popular = await enrich_with_location(popular, context)
             await save_popular(context, popular)
             idlog.log_popular_stored(context, entries=popular)
             results.append({"context": context, "status": "success", "count": len(popular)})

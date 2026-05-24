@@ -28,24 +28,29 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         rid = getattr(request.state, "request_id", "-")
+        rid_src = getattr(request.state, "request_id_source", "generated")
         path = request.url.path
         query = str(request.url.query) or "-"
         ip = request.client.host if request.client else "-"
+        caller = request.headers.get("x-caller-service") or "-"
         quiet = path in _QUIET_PATHS
 
         log = _access_log.debug if quiet else _access_log.info
-        log("[%s] --> %s %s query=%s ip=%s", rid, request.method, path, query, ip)
+        log(
+            "[%s] --> %s %s query=%s ip=%s caller=%s rid_src=%s",
+            rid, request.method, path, query, ip, caller, rid_src,
+        )
 
         t0 = time.monotonic()
         try:
             response = await call_next(request)
         except Exception:
             elapsed = int((time.monotonic() - t0) * 1000)
-            _access_log.error("[%s] <-- 500 elapsed_ms=%d path=%s", rid, elapsed, path)
+            _access_log.error("[%s] <-- 500 elapsed_ms=%d path=%s caller=%s", rid, elapsed, path, caller)
             raise
 
         elapsed = int((time.monotonic() - t0) * 1000)
-        log("[%s] <-- %d elapsed_ms=%d path=%s", rid, response.status_code, elapsed, path)
+        log("[%s] <-- %d elapsed_ms=%d path=%s caller=%s", rid, response.status_code, elapsed, path, caller)
         return response
 
 
@@ -62,7 +67,12 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         incoming = request.headers.get(REQUEST_ID_HEADER)
-        request_id = incoming if incoming else uuid.uuid4().hex[:16]
+        if incoming:
+            request_id = incoming
+            request.state.request_id_source = "caller"
+        else:
+            request_id = uuid.uuid4().hex[:16]
+            request.state.request_id_source = "generated"
         request.state.request_id = request_id
         response = await call_next(request)
         response.headers[REQUEST_ID_HEADER] = request_id

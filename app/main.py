@@ -23,8 +23,8 @@ def _configure_logging() -> None:
     root = logging.getLogger()
     root.setLevel(level)
 
-    fmt = os.environ.get("LOG_FMT") or "%(levelname)s %(name)s: %(message)s"
-    formatter = logging.Formatter(fmt)
+    fmt = os.environ.get("LOG_FMT") or "%(asctime)s %(levelname)-8s %(name)s %(message)s"
+    formatter = logging.Formatter(fmt, datefmt="%Y-%m-%d %H:%M:%S")
 
     for branch in ("app", "pet_data_api"):
         log = logging.getLogger(branch)

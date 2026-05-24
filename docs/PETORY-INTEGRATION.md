@@ -1,85 +1,155 @@
-## Petory ↔ pet-data-api 연동 가이드
+# Petory ↔ pet-data-api 연동 가이드
 
-> 대상: Petory(Java/Spring) 백엔드 또는 프론트에서 트렌드·인기 데이터를 불러 오는 경우  
-> 현재 pet-data-api: **PostgreSQL 시설 데이터·추천(`/recommend`)·이벤트 콜백 없음** — **Redis 에 캐시된 트렌드와 인기 상호만** 제공합니다.
+> 대상: Petory(Java/Spring) 백엔드 — `PetDataApiClient.java`  
+> pet-data-api는 **Redis에 캐시된 트렌드 키워드·인기 상호만** 제공합니다. PostgreSQL·추천·이벤트 콜백 없음.
 
-짝 문서: [`V3-CHANGES.md`](V3-CHANGES.md) (변경 타임라인), [`USAGE.md`](USAGE.md) (curl·환경 변수).
+짝 문서: [`USAGE.md`](USAGE.md) (curl·환경변수), [`V3-CHANGES.md`](V3-CHANGES.md) (변경 타임라인)
 
-특히 이전 버전 문서나 클라이언트가 의존하던 다음 항목은 **제거·폐기**되었습니다.
+---
+
+## 1. API 요약
+
+| 엔드포인트               | 설명                            | 인증               |
+| ------------------------ | ------------------------------- | ------------------ |
+| `GET /popular/{context}` | 업종별 인기 상호 목록 (최대 20) | `X-API-Key` 일반   |
+| `GET /trends/{category}` | 카테고리 트렌드 키워드 순위     | `X-API-Key` 일반   |
+| `GET /healthz`           | Liveness                        | 없음               |
+| `GET /readyz`            | Redis Readiness                 | 없음               |
+| `POST /collect/trigger`  | 배치 수동 실행                  | `X-API-Key` 관리자 |
+
+**유효 context/category**: `grooming` `hospital` `supplies` `pharmacy` `cafe` `pension` `restaurant` `boarding` `hotel`
+
+**별칭** (popular만): `snack` `food` `clothes` → `supplies` 로 서버 정규화
+
+---
+
+## 2. Petory 클라이언트 필수 헤더
+
+```http
+X-API-Key: <평문 API 키>       # 필수 — .env의 해시가 아닌 원래 평문
+X-Request-Id: <16자 hex>        # 권장 — pet-data-api가 동일 값을 응답 헤더에 에코
+X-Caller-Service: petory        # 권장 — 로그에서 Petory 요청 식별용
+```
+
+`PetDataApiClient.buildClient()` 에서 `defaultHeader` 로 고정 설정:
+
+```java
+return RestClient.builder()
+    .baseUrl(baseUrl)
+    .defaultHeader("X-API-Key", apiKey)
+    .defaultHeader("X-Caller-Service", "petory")   // 추가
+    .requestFactory(factory)
+    .build();
+```
+
+`X-Request-Id`는 이미 `withOptionalCorrelation()` 로 요청별 주입 중 → **변경 불필요**.
+
+---
+
+## 3. 요청 추적 — 로그 한 사이클
+
+Petory가 `GET /popular/cafe?limit=5` (X-Request-Id: `a1b2c3d4`, X-Caller-Service: `petory`) 를 보내면:
+
+```text
+# 1. 요청 진입 (AccessLogMiddleware)
+2026-05-24 18:00:01 INFO pet_data_api.access
+  [a1b2c3d4] --> GET /popular/cafe query=limit=5 ip=10.0.0.1 caller=petory rid_src=caller
+
+# 2. 엔드포인트 파라미터 (integration_trace.inbound)
+2026-05-24 18:00:01 INFO pet_data_api.petory_compat
+  [a1b2c3d4] inbound op=popular caller=petory rid_src=caller path=/popular/cafe ...
+
+# 3. Redis 조회 결과 (integration_trace.outbound_redis_hit)
+2026-05-24 18:00:01 INFO pet_data_api.petory_compat
+  [a1b2c3d4] outbound op=popular status=200 redis_key='popular:cafe'
+  in_cache=3 returning=3 sample_names=['온독', '바닐라브릭', ...]
+
+# 4. 응답 완료 (AccessLogMiddleware)
+2026-05-24 18:00:01 INFO pet_data_api.access
+  [a1b2c3d4] <-- 200 elapsed_ms=5 path=/popular/cafe caller=petory
+```
+
+**grep 패턴:**
+
+```bash
+grep 'caller=petory' app.log          # Petory 요청만
+grep 'a1b2c3d4' app.log               # 특정 request_id 전체 추적
+grep 'auth 40' app.log                # 인증 실패 전체
+grep 'status=503.*op=popular' app.log # popular 캐시 비어있음
+grep 'ingestion-digest' app.log       # 배치 수집 결과
+```
+
+**rid_src 해석:**
+
+| 값                  | 의미                                                             |
+| ------------------- | ---------------------------------------------------------------- |
+| `rid_src=caller`    | Petory가 `X-Request-Id` 를 보냄 — Petory 로그와 cross-trace 가능 |
+| `rid_src=generated` | pet-data-api가 자체 생성 — 단독 추적만 가능                      |
+
+---
+
+## 4. 에러 응답 패턴
+
+| HTTP | 메시지                   | 원인                                 | 대처                             |
+| ---- | ------------------------ | ------------------------------------ | -------------------------------- |
+| 401  | Missing X-API-Key header | 헤더 누락                            | 헤더 추가                        |
+| 401  | Invalid API Key          | 평문 키 오류 또는 해시를 헤더에 넣음 | .env 평문 키 확인                |
+| 403  | Admin key required       | 일반 키로 관리자 경로 호출           | `/collect/trigger`는 관리자 키만 |
+| 404  | Unknown context/category | 잘못된 경로 파라미터                 | §1 유효값 목록 참조              |
+| 503  | popular data unavailable | Redis 키 없음 (배치 미실행)          | 빈 배열로 fallback 후 대기       |
+| 503  | Cache unavailable        | Redis 연결 오류                      | `/readyz` 로 Redis 상태 확인     |
+
+`popular` 503 수신 시 권장 처리: 인기 카드 숨김, 빈 배열 반환, 재시도 없이 다음 배치 대기.
+
+---
+
+## 5. 데이터 파이프라인 현황
+
+### 배치 스케줄
+
+| 작업        | 시각              | 설명                                         |
+| ----------- | ----------------- | -------------------------------------------- |
+| 트렌드 수집 | 매일 18:00 (로컬) | 블로그+카페 → 형태소 분석 → Redis Sorted Set |
+| 인기 수집   | 매일 18:10 (로컬) | 블로그+카페 → 상호명 추출·점수 → Redis JSON  |
+
+수동 트리거 (관리자 키):
+
+```http
+POST /collect/trigger
+X-API-Key: <admin-plaintext-key>
+Content-Type: application/json
+
+{"targets": ["popular", "trends"]}
+```
+
+### 데이터 소스
+
+- **네이버 블로그 검색 API** (`blog.json`)
+- **네이버 카페 검색 API** (`cafearticle.json`) — 2026-05-24 배치부터 병합 적용
+
+쿼터: 블로그+카페 합산 **25,000건/일** (같은 Client ID 공유).
+
+### Redis 키 TTL
+
+| Redis 키                     | TTL | 설명                                     |
+| ---------------------------- | --- | ---------------------------------------- |
+| `trends:{category}:keywords` | 24h | 카테고리별 키워드 Sorted Set             |
+| `popular:{context}`          | 25h | 인기 상호 JSON (배치 주기 24h + 여유 1h) |
+
+### 알려진 데이터 품질 이슈
+
+| 증상                                | 원인                                | 상태                      |
+| ----------------------------------- | ----------------------------------- | ------------------------- |
+| `in_cache=3` (popular 항목 수 적음) | 카페 상호명 패턴 다양 → 추출률 낮음 | 배치 재실행으로 개선 예정 |
+| `'진짜'` 같은 부사가 상호명 포함    | blocklist 미등록                    | 수정 예정                 |
+
+---
+
+## 6. 폐기된 엔드포인트
+
+Petory 코드에 다음 경로가 남아 있으면 dead code 또는 404 원인:
 
 - `POST /recommend`, `POST /recommend/copy`
 - `GET /facilities*`, `GET /stats/summary`
 - `POST /events/recommendation`
-- `GET /trends/{category}/timeseries`(Postgres 시계열)
-- 카카오 지오코딩·Ollama·그루밍 MVP 플래그
-
----
-
-### 1. 한 줄 요약
-
-| 기능 | 방법 |
-|------|------|
-| 카테고리 트렌드 키워드 | `GET /trends/{category}` + `X-API-Key` |
-| 업종별 인기 상호 | `GET /popular/{context}` + `X-API-Key` |
-| 헬스 | `GET /healthz`(liveness), `GET /readyz`(Redis) |
-
-카테고리·컨텍스트 목록 및 별칭은 [`USAGE.md`](USAGE.md) 참고 (`snack`/`food`/`clothes` → 인기만 `supplies` 로 귀결).
-
----
-
-### 2. Petory 에서 할 일
-
-1. **설정**: pet-data-api Base URL 과 **일반** API 평문 키를 안전하게 주입합니다. 헤더는 항상 `X-API-Key`.
-2. **추적**: 선택적으로 `X-Request-Id` 를 보냅니다. pet-data-api 는 동일 값을 응답 헤더에 에코합니다(로깅 상관 분석용).
-3. **호출 패턴**: UI 는 **캐시된 Redis 데이터만** 받습니다. “실시간 최신 블로그 원문”이 아니라 **마지막 배치**(스켈줄 18:00/18:10 또는 운영자 트리거) 결과입니다.
-4. **데이터 부재 처리**: 트렌드/인기 키가 비어 있으면 서비스는 **503** 과 짧은 `detail` 을 줄 수 있습니다. Petory 에서는 카드 숨김·재시도·기본 카피로 처리합니다.
-
----
-
-### 3. 예시 페이로드
-
-**`GET /trends/{category}`** (요약 형태):
-
-```json
-{
-  "category": "grooming",
-  "updated_at": "2026-05-22T09:05:01.234567+00:00",
-  "keywords": [
-    {"keyword": "스포팅컷", "score": 41}
-  ]
-}
-```
-
-**`GET /popular/{context}`** 항목(`PopularEntry`, 최대 반환 길이 쿼리로 제한):
-
-```json
-[
-  {
-    "name": "해피펫 미용실",
-    "mention_count": 12,
-    "avg_freshness": 0.85,
-    "score": 0.91
-  }
-]
-```
-
-점수 계산 규칙은 수집기(`runner`·파서) 구현을 따르고, API 계약만 위 필드를 보장합니다.
-
----
-
-### 4. 운영자 수동 수집 (선택)
-
-Petory 가 아니라 **백오피스/파이프라인** 에서 호출합니다. 헤더 `X-API-Key` 는 **관리자** 키여야 하며 바디가 없으면 안 됩니다.
-
-```http
-POST /collect/trigger
-Content-Type: application/json
-
-{"targets": ["trends", "popular"]}
-```
-
----
-
-### 5. 설계 근거
-
-상세 명세 및 마이그레이션 노트는 [`superpowers/specs/2026-05-23-popularity-intelligence-redesign.md`](superpowers/specs/2026-05-23-popularity-intelligence-redesign.md) 입니다.
+- `GET /trends/{category}/timeseries` (Postgres 시계열)

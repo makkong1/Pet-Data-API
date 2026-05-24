@@ -11,7 +11,17 @@ _log = logging.getLogger(__name__)
 
 # ── 점수 상수 ──────────────────────────────────────────────────────────
 _FRESHNESS_WINDOW_DAYS = 180
-_MIN_MENTION_COUNT = 2
+_MIN_MENTION_COUNT: dict = {
+    "grooming":   2,
+    "hospital":   2,
+    "supplies":   2,
+    "pharmacy":   2,
+    "cafe":       1,
+    "pension":    2,
+    "restaurant": 1,
+    "boarding":   2,
+    "hotel":      2,
+}
 _TOP_N = 20
 _EPS = 1e-9
 
@@ -56,28 +66,48 @@ _CONTEXT_HINTS: dict = {
 }
 
 _SUFFIX_PATTERNS: dict = {
-    "grooming":   re.compile(r"([가-힣a-zA-Z0-9]{2,10})(?:\s+(?:애견|반려견|펫))?\s*(?:미용실|애견미용|펫미용|그루밍샵)"),
-    "hospital":   re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:동물병원|24시동물병원|애견병원)"),
-    "supplies":   re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:펫샵|용품점|애견용품점|반려동물용품점|펫스토어)"),
-    "pharmacy":   re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:동물약국|반려동물약국)"),
-    "cafe":       re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:애견카페|반려동물카페|펫카페)"),
-    "pension":    re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:반려동물펜션|애견펜션|펫펜션)"),
-    "restaurant": re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:반려동물동반식당|애견동반식당|펫프렌들리식당)"),
-    "boarding":   re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:위탁관리|호텔링센터|펫시터)"),
-    "hotel":      re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:펫호텔|반려동물호텔|애견호텔)"),
+    "grooming":   [re.compile(r"([가-힣a-zA-Z0-9]{2,10})(?:\s+(?:애견|반려견|펫))?\s*(?:미용실|애견미용|펫미용|그루밍샵)")],
+    "hospital":   [re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:동물병원|24시동물병원|애견병원)")],
+    "supplies":   [re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:펫샵|용품점|애견용품점|반려동물용품점|펫스토어)")],
+    "pharmacy":   [re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:동물약국|반려동물약국)")],
+    "cafe":       [re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:애견카페|반려동물카페|펫카페)")],
+    "pension":    [re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:반려동물펜션|애견펜션|펫펜션)")],
+    "restaurant": [re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:반려동물동반식당|애견동반식당|펫프렌들리식당)")],
+    "boarding":   [re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:위탁관리|호텔링센터|펫시터)")],
+    "hotel":      [re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:펫호텔|반려동물호텔|애견호텔)")],
 }
 
 _PREFIX_PATTERNS: dict = {
     # 한국어 상호명은 <상호명>+<업종> suffix 형식이 지배적.
-    # prefix 패턴(업종 키워드 뒤 캡처)은 업종 키워드 뒤에 오는
-    # 아무 단어(약품명·조사·직책)를 잡아내므로 노이즈가 많음.
+    # prefix 패턴은 업종 키워드 뒤에 오는 임의 단어를 잡으므로 노이즈 위험.
     # → hospital, pharmacy, boarding은 suffix 패턴만 사용.
-    "grooming":   re.compile(r"(?:애견|반려견|펫)\s*([가-힣a-zA-Z0-9]{2,8})\s*(?:미용실|애견미용|펫미용|그루밍샵)"),
-    "supplies":   re.compile(r"(?:펫샵|용품점)\s*([가-힣a-zA-Z0-9]{2,8})"),
-    "cafe":       re.compile(r"(?:애견카페|반려동물카페)\s*([가-힣a-zA-Z0-9]{2,8})"),
-    "pension":    re.compile(r"(?:반려동물펜션|애견펜션)\s*([가-힣a-zA-Z0-9]{2,8})"),
-    "restaurant": re.compile(r"(?:반려동물동반|애견동반)\s*([가-힣a-zA-Z0-9]{2,8})"),
-    "hotel":      re.compile(r"(?:펫호텔|반려동물호텔)\s*([가-힣a-zA-Z0-9]{2,8})"),
+    "grooming":   [re.compile(r"(?:애견|반려견|펫)\s*([가-힣a-zA-Z0-9]{2,8})\s*(?:미용실|애견미용|펫미용|그루밍샵)")],
+    "supplies":   [re.compile(r"(?:펫샵|용품점)\s*([가-힣a-zA-Z0-9]{2,8})")],
+    "cafe": [
+        re.compile(r"(?:애견카페|반려동물카페)\s*([가-힣a-zA-Z0-9]{2,12})"),
+        # "반려동물 동반 카페 [상호명]" — 실제 제목의 지배적 패턴
+        re.compile(r"반려동물\s*동반\s*카페\s+([가-힣a-zA-Z0-9]{2,12})"),
+        # "반려동물 동반 가능한 [상호명]" — 제목 말미에 상호 등장
+        re.compile(r"반려동물\s*동반\s*가능한?\s+([가-힣a-zA-Z0-9]{2,12})"),
+    ],
+    "pension":    [re.compile(r"(?:반려동물펜션|애견펜션)\s*([가-힣a-zA-Z0-9]{2,8})")],
+    "restaurant": [
+        # "반려동물동반/애견동반 [상호명]" — 붙여쓰기 뒤 상호명
+        re.compile(r"(?:반려동물동반|애견동반)\s+([가-힣a-zA-Z0-9]{2,12})"),
+        # "반려동물 동반 가능[한] [상호명]" — 무무무, 평상마루
+        re.compile(r"반려동물\s*동반\s*가능한?\s+([가-힣a-zA-Z0-9]{2,12})"),
+        # "애견동반 [수식어]맛집 [상호명]" — 건대 야식맛집 맛닭꼬, 애견동반 맛집 마니산산채
+        re.compile(r"애견동반\s+\S{0,6}맛집\s+([가-힣a-zA-Z0-9]{2,12})"),
+        # "반려동물 동반 맛집 [상호명]" — 여수 반려동물 동반 맛집 명동게장
+        re.compile(r"반려동물\s*동반\s*맛집\s+([가-힣a-zA-Z0-9]{2,12})"),
+        # "강아지동반 [식당유형] [상호명]" — 강아지동반식당 오비피씨
+        re.compile(r"강아지\s*동반\s*(?:식당|맛집|브런치집|국수집|삼겹살집)\s+([가-힣a-zA-Z0-9]{2,12})"),
+    ],
+    "hotel": [
+        re.compile(r"(?:펫호텔|반려동물호텔)\s*([가-힣a-zA-Z0-9]{2,8})"),
+        # "반려동물 동반 호텔 [추천] [상호명]" — 제목에서 상호명이 뒤에 오는 패턴
+        re.compile(r"반려동물\s*동반\s*호텔\s+(?:추천\s+)?([가-힣a-zA-Z0-9]{2,12})"),
+    ],
 }
 
 _BLOCKLIST_EXACT = frozenset([
@@ -86,30 +116,50 @@ _BLOCKLIST_EXACT = frozenset([
     "미용실", "미용", "샵", "살롱", "병원", "용품", "용품점",
     "사료", "간식", "진료", "24시", "24시간", "예약제",
     "동반", "가능", "편안", "청결", "전문",
-    # 대명사·부사
-    "저희", "우리", "함께", "같이", "바로", "항상", "여러",
+    # 대명사·부사·시간어
+    "저희", "우리", "함께", "같이", "바로", "항상", "여러", "요즘",
     # 업종·상황 설명어 (상호명이 아닌 수식어)
     "일반", "심야", "야간", "실내", "대형", "신상", "근교", "야외",
     "서비스", "가격", "이용", "예약", "접종", "신종", "독채",
     "연중무휴", "가까운",
-    # 동작·관계 명사
-    "다녀온", "단골", "구매", "방문", "창업", "여행", "정보", "찾기",
-    # 조사·어미
-    "이나", "까지",
+    # 카페·숙박 수식어 (prefix 패턴 확장 후 FP 방지)
+    "베이커리", "전원주택", "오션뷰", "브런치",
+    # 동작·관계·기능 명사
+    "다녀온", "단골", "구매", "방문", "창업", "여행", "정보", "찾기", "주소", "가본",
+    # 음식·숙박 일반 명사 (restaurant 컨텍스트 FP)
+    # 캠핑·고기집은 복합어도 차단해야 하므로 BLOCKLIST_CONTAINS로 이동
+    "숙소", "파스타", "다이너", "스타필드", "풀빌라",
+    # 조사·어미 (단독 등장 시만 차단 — 복합어는 BLOCKLIST_CONTAINS "이라" 로 처리)
+    "이나", "까지", "부터",
+    # 지명 (단독 등장 시 — _LOCATION_CITY 미등록 도시)
+    "안성", "포천",
     # 음식점·숙박 카테고리 키워드
-    "식당", "레스토랑", "맛집", "카페", "호텔", "리조트",
+    "식당", "레스토랑", "맛집", "카페", "호텔", "리조트", "펜션", "사찰",
+    # 음식 스타일·업종 유형명 (restaurant prefix 패턴 확장 후 FP)
+    "양식", "채식", "전통주", "디저트", "이탈리안", "인기", "술집", "총정리",
+    "매장", "파인다이닝", "추어탕집", "네일샵",
+    "백숙",     # 음식 종류 (백숙집이 아닌 메뉴명)
+    "출입법",   # 반려동물 출입 규정 텍스트
+    # 수식어·부사·형용사 (restaurant/cafe 패턴 FP)
+    "이젠", "맛집들", "자유로운", "생긴", "였어요",
+    "갈까",     # 구어체 의문형 ("갈까?")
+    "라떼",     # 커피 종류 (카페명 아님)
+    # 상업시설·쇼핑몰 명사
+    "롯데몰", "펫샵",
+    # 설명구·복합 FP (cafe 패턴)
+    "천안신상", "무이사회",
     # 서비스 유형 명사
     "펫시터", "프리미엄",
     # 약품명 (pharmacy prefix 패턴이 캡처)
     "심장사상충약",
     # 형용사형·상태어
-    "다른", "만족스러운", "오픈형", "사실",
+    "다른", "만족스러운", "오픈형", "사실", "진짜",
     # 반려동물 일반명사
     "애완동물",
     # 인사말·직책
     "안녕하세요", "코디네이터",
-    # 동사형
-    "다니던",
+    # 동사형·종결어미형
+    "다니던", "와요",
     # 약품명
     "넥스가드", "스펙트라", "심피드독",
 ])
@@ -134,6 +184,13 @@ _BLOCKLIST_CONTAINS = frozenset([
     "할인",   # 할인카드 등
     "동구", "서구", "남구", "북구", "중구",  # 행정구역명 복합어 (울산동구애견 등)
     "반려",   # 지명+반려 복합어 (창원반려 등); _BLOCKLIST_EXACT의 substring 확장
+    "내돈내산",  # 후기 공개 관용구
+    "이라",     # 레스토랑이라 등 조사 복합어 차단
+    "캠핑",     # 캠핑장·캠핑카 등 복합어 차단
+    "고기집",   # 송도고기집 등 복합어 차단
+    "가능",     # 대형견도가능·동반가능 등 가능 복합어 차단
+    "신상",     # 천안신상·신상카페 등 "새로운" 수식어 복합어 차단
+    "스타필드", # 수원스타필드·안성스타필드 등 대형 쇼핑몰 복합어 차단
 ])
 
 _LOCATION_CITY = frozenset([
@@ -154,7 +211,29 @@ _LOCATION_CITY = frozenset([
     # 경상
     "경주", "포항", "구미", "창원", "진주", "김해", "양산", "경산",
     "해운대", "광안리",  # 부산
+    # 강원 추가
+    "횡성",
+    # 경상 추가
+    "황리단길",  # 경주 거리
+    "언양",     # 울산 언양
+    # 경기·수도권 추가
+    "다산",     # 다산 신도시
+    "서촌",     # 서울 종로 서촌
+    "군자",     # 서울 광진구 군자
+    "용산",     # 서울 용산구
+    "신림",     # 서울 관악구 신림
+    "강화",     # 인천 강화군
+    "경기북부",  # 경기 북부 지역
+    "삼송",     # 경기 고양 삼송지구
+    "청라",     # 인천 서구 청라
+    "신도림",   # 서울 구로구 신도림
+    "동두천",   # 경기 동두천시
+    "을왕리",   # 인천 영종도 을왕리
     # 기타 지명·산 등
+    "경남",     # 경상남도
+    "서산",     # 충남 서산
+    "부산대",   # 부산대학교 인근 지역
+    "대구앞산", # 대구 앞산 자연공원 인근
     "부평", "팔공산", "성산", "대구경산", "오산", "남악",
     # 제주
     "제주",
@@ -186,12 +265,12 @@ def _extract_candidates_from_text(text: str, context: str) -> set:
     hints = _CONTEXT_HINTS.get(context, ())
     if hints and not any(h in text for h in hints):
         return candidates
-    for pattern in (_SUFFIX_PATTERNS.get(context), _PREFIX_PATTERNS.get(context)):
-        if pattern:
-            for m in pattern.finditer(text):
-                name = _CANDIDATE_SANITIZE.sub("", m.group(1)).strip()
-                if _is_valid_name(name):
-                    candidates.add(name)
+    patterns = _SUFFIX_PATTERNS.get(context, []) + _PREFIX_PATTERNS.get(context, [])
+    for pattern in patterns:
+        for m in pattern.finditer(text):
+            name = _CANDIDATE_SANITIZE.sub("", m.group(1)).strip()
+            if _is_valid_name(name):
+                candidates.add(name)
     return candidates
 
 
@@ -213,12 +292,13 @@ def _parse_freshness(postdate: Optional[str]) -> float:
         return 0.0
 
 
-def _compute_scores(aggregator: dict) -> list:
+def _compute_scores(aggregator: dict, context: str = "") -> list:
     """aggregator: {name: {"count": int, "freshness_sum": float}}"""
+    min_count = _MIN_MENTION_COUNT.get(context, 2)
     entries = [
         (name, info)
         for name, info in aggregator.items()
-        if info["count"] >= _MIN_MENTION_COUNT
+        if info["count"] >= min_count
     ]
     if not entries:
         return []
@@ -285,7 +365,7 @@ async def extract_popular_names(context: str) -> list:
 
     _log.info("blog extract done context=%s unique_posts=%d candidates=%d",
               normalized, len(unique_items), len(aggregator))
-    return _compute_scores(aggregator)
+    return _compute_scores(aggregator, normalized)
 
 
 async def save_popular(context: str, results: list) -> None:

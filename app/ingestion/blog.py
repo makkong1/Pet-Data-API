@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from app.ingestion.naver import CATEGORY_KEYWORDS, search_naver_blog
+from app.ingestion.naver import CATEGORY_KEYWORDS, search_naver_blog, search_naver_cafe
 from app.platform.cache.redis import get_redis
 
 _log = logging.getLogger(__name__)
@@ -68,14 +68,15 @@ _SUFFIX_PATTERNS: dict = {
 }
 
 _PREFIX_PATTERNS: dict = {
+    # 한국어 상호명은 <상호명>+<업종> suffix 형식이 지배적.
+    # prefix 패턴(업종 키워드 뒤 캡처)은 업종 키워드 뒤에 오는
+    # 아무 단어(약품명·조사·직책)를 잡아내므로 노이즈가 많음.
+    # → hospital, pharmacy, boarding은 suffix 패턴만 사용.
     "grooming":   re.compile(r"(?:애견|반려견|펫)\s*([가-힣a-zA-Z0-9]{2,8})\s*(?:미용실|애견미용|펫미용|그루밍샵)"),
-    "hospital":   re.compile(r"(?:동물병원|애견병원)\s*([가-힣a-zA-Z0-9]{2,8})"),
     "supplies":   re.compile(r"(?:펫샵|용품점)\s*([가-힣a-zA-Z0-9]{2,8})"),
-    "pharmacy":   re.compile(r"(?:동물약국|반려동물약국)\s*([가-힣a-zA-Z0-9]{2,8})"),
     "cafe":       re.compile(r"(?:애견카페|반려동물카페)\s*([가-힣a-zA-Z0-9]{2,8})"),
     "pension":    re.compile(r"(?:반려동물펜션|애견펜션)\s*([가-힣a-zA-Z0-9]{2,8})"),
     "restaurant": re.compile(r"(?:반려동물동반|애견동반)\s*([가-힣a-zA-Z0-9]{2,8})"),
-    "boarding":   re.compile(r"(?:위탁관리|호텔링)\s*([가-힣a-zA-Z0-9]{2,8})"),
     "hotel":      re.compile(r"(?:펫호텔|반려동물호텔)\s*([가-힣a-zA-Z0-9]{2,8})"),
 }
 
@@ -83,13 +84,14 @@ _BLOCKLIST_EXACT = frozenset([
     # 동물·업종 일반명사
     "강아지", "고양이", "반려동물", "반려견", "반려", "애견", "펫", "동물",
     "미용실", "미용", "샵", "살롱", "병원", "용품", "용품점",
-    "사료", "간식", "진료", "24시", "예약제",
+    "사료", "간식", "진료", "24시", "24시간", "예약제",
     "동반", "가능", "편안", "청결", "전문",
     # 대명사·부사
     "저희", "우리", "함께", "같이", "바로", "항상", "여러",
     # 업종·상황 설명어 (상호명이 아닌 수식어)
     "일반", "심야", "야간", "실내", "대형", "신상", "근교", "야외",
     "서비스", "가격", "이용", "예약", "접종", "신종", "독채",
+    "연중무휴", "가까운",
     # 동작·관계 명사
     "다녀온", "단골", "구매", "방문", "창업", "여행", "정보", "찾기",
     # 조사·어미
@@ -100,8 +102,16 @@ _BLOCKLIST_EXACT = frozenset([
     "펫시터", "프리미엄",
     # 약품명 (pharmacy prefix 패턴이 캡처)
     "심장사상충약",
-    # 형용사형
-    "다른", "만족스러운",
+    # 형용사형·상태어
+    "다른", "만족스러운", "오픈형", "사실",
+    # 반려동물 일반명사
+    "애완동물",
+    # 인사말·직책
+    "안녕하세요", "코디네이터",
+    # 동사형
+    "다니던",
+    # 약품명
+    "넥스가드", "스펙트라", "심피드독",
 ])
 
 _BLOCKLIST_CONTAINS = frozenset([
@@ -115,6 +125,15 @@ _BLOCKLIST_CONTAINS = frozenset([
     "미용실", # 강아지미용실 등 — 캡처 그룹 내 업종명 중복
     "식당",   # 가능식당 등
     "카페",   # 힐링카페 등 — 업종명이 캡처 그룹에 포함된 경우
+    "강아지", "고양이",  # 지명+동물 복합어 차단 (화원강아지, 강남강아지 등)
+    "야간",   # 지명+야간 복합어 (안산야간애견 등)
+    "24시",   # 지명+24시 복합어 (청주24시, 부산24시 등)
+    "2차", "3차",  # 지명+지점번호 (부산2차 등)
+    "전문",   # 안과전문 등 업종 수식어
+    "약국",   # 광주약국 등 지명+업종명
+    "할인",   # 할인카드 등
+    "동구", "서구", "남구", "북구", "중구",  # 행정구역명 복합어 (울산동구애견 등)
+    "반려",   # 지명+반려 복합어 (창원반려 등); _BLOCKLIST_EXACT의 substring 확장
 ])
 
 _LOCATION_CITY = frozenset([
@@ -134,15 +153,15 @@ _LOCATION_CITY = frozenset([
     "전주", "순천", "여수", "목포", "익산", "군산",
     # 경상
     "경주", "포항", "구미", "창원", "진주", "김해", "양산", "경산",
-    "해운대",  # 부산 해운대구
+    "해운대", "광안리",  # 부산
     # 기타 지명·산 등
-    "부평", "팔공산", "성산", "대구경산",
+    "부평", "팔공산", "성산", "대구경산", "오산", "남악",
     # 제주
     "제주",
 ])
 
-# 조사·어미 마지막 글자 필터 — '에'(장소/시간), '의'(소유격), '은'(보조사), '다'(서술형 어미) 추가
-_GRAMMAR_ENDING = re.compile(r"(?:한|는|된|인|을|를|이|가|도|만|서|로|와|과|며|고|어|아|해|게|에|의|은|다)$")
+# 조사·어미 마지막 글자 필터
+_GRAMMAR_ENDING = re.compile(r"(?:한|는|된|인|을|를|이|가|도|만|서|로|와|과|며|고|어|아|해|게|에|의|은|다|던)$")
 _LOCATION_SUFFIX = re.compile(r"[가-힣]{1,5}(?:구|시|군|동|읍|면|로|역)$")
 _HANGUL_MIN2 = re.compile(r"[가-힣]{2,}")
 _CANDIDATE_SANITIZE = re.compile(u'[\\u0022\\u0027\\u201c\\u201d\\u2018\\u2019\\u00b7\\[\\]\\(\\)\\{\\}#@]')
@@ -235,11 +254,15 @@ async def extract_popular_names(context: str) -> list:
 
     all_items: list = []
     for query in queries:
-        try:
-            items = await search_naver_blog(query, display=100, sort="sim")
-            all_items.extend(items)
-        except Exception as exc:
-            _log.warning("blog extract failed context=%s query=%r err=%s", normalized, query, exc)
+        for search_fn in (search_naver_blog, search_naver_cafe):
+            try:
+                items = await search_fn(query, display=100, sort="sim")
+                all_items.extend(items)
+            except Exception as exc:
+                _log.warning(
+                    "blog extract failed context=%s query=%r source=%s err=%s",
+                    normalized, query, search_fn.__name__, exc,
+                )
 
     # 전역 link dedupe
     seen_links: set = set()

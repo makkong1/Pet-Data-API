@@ -89,4 +89,5 @@ async def test_get_popular_limit_param():
 async def test_get_popular_requires_auth():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.get("/popular/grooming")
-    assert response.status_code == 422
+    assert response.status_code == 401
+    assert response.json().get("detail") == "Missing X-API-Key header"

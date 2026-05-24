@@ -1,0 +1,36 @@
+{
+  "task": "multi-source-ingestion",
+  "description": "네이버 카페 검색 API를 추가 소스로 병합하고, SQLite에 원본 포스트(PostRecord)를 보관하는 멀티소스 수집 파이프라인 구축",
+  "branch": "feat/multi-source-ingestion",
+  "base_branch": "dev",
+  "steps": [
+    {
+      "id": "step1",
+      "title": "PostRecord 정규화 모델 + SQLite raw_posts 테이블 구축",
+      "file": "step1.md",
+      "status": "completed",
+      "summary": "app/ingestion/record.py(PostRecord), app/platform/store/sqlite.py(init_db/save_posts), aiosqlite 의존성, SQLITE_PATH 설정 추가"
+    },
+    {
+      "id": "step2",
+      "title": "네이버 카페 API 어댑터 추가 (search_naver_cafe + PostRecord 변환)",
+      "file": "step2.md",
+      "status": "completed",
+      "summary": "NAVER_CAFE_URL, search_naver_cafe(), _blog_items_to_records(), _cafe_items_to_records() 추가"
+    },
+    {
+      "id": "step3",
+      "title": "수집 레이어 병합 (블로그 + 카페 → PostRecord 리스트, link dedupe)",
+      "file": "step3.md",
+      "status": "completed",
+      "summary": "collect_category_trends → list[PostRecord], extract_popular_names 카페 추가, 관련 테스트 4개 업데이트"
+    },
+    {
+      "id": "step4",
+      "title": "runner.py SQLite 저장 연결 + 분석 파이프 PostRecord 입력 지원",
+      "file": "step4.md",
+      "status": "completed",
+      "summary": "aggregate_keywords PostRecord 입력, run_trend_collection에 init_db/save_posts 연결, test_analyzer 업데이트"
+    }
+  ]
+}

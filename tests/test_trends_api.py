@@ -52,7 +52,8 @@ async def test_get_trends_no_data_returns_503():
 async def test_get_trends_requires_auth():
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         response = await ac.get("/trends/snack")
-    assert response.status_code == 422
+    assert response.status_code == 401
+    assert response.json().get("detail") == "Missing X-API-Key header"
 
 
 @pytest.mark.asyncio

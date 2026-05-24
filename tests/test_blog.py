@@ -22,11 +22,11 @@ async def test_extract_popular_names_cross_query_link_dedupe():
     async def fake_search(query, display=100, sort="sim"):
         return [dup_post, dup_post2]
 
-    with patch("app.ingestion.blog.search_naver_blog", side_effect=fake_search):
+    with patch("app.ingestion.blog.search_naver_blog", side_effect=fake_search), \
+         patch("app.ingestion.blog.search_naver_cafe", side_effect=fake_search):
         from app.ingestion.blog import extract_popular_names
         result = await extract_popular_names("grooming")
 
-    # grooming has 3 queries — same links returned 3 times each but deduplicated to 2 unique posts
     해피독_entries = [r for r in result if r["name"] == "해피독"]
     assert 해피독_entries, "해피독 should be extracted from the grooming blog post"
     assert 해피독_entries[0]["mention_count"] == 2
@@ -75,9 +75,12 @@ async def test_collect_popular_for_context_aliases_supplies():
         called_queries.append(query)
         return []
 
-    with patch("app.ingestion.blog.search_naver_blog", side_effect=fake_search):
+    with patch("app.ingestion.blog.search_naver_blog", side_effect=fake_search), \
+         patch("app.ingestion.blog.search_naver_cafe", side_effect=fake_search):
         from app.ingestion.blog import collect_popular_for_context
         await collect_popular_for_context("snack")
 
-    # snack → supplies → 8 queries (supplies2+snack2+food2+clothes2)
-    assert len(called_queries) == 8
+    from app.ingestion.naver import CATEGORY_KEYWORDS
+    expected_queries = sum(len(CATEGORY_KEYWORDS[k]) for k in ("supplies", "snack", "food", "clothes"))
+    # blog + cafe 각각 호출 → expected_queries * 2
+    assert len(called_queries) == expected_queries * 2

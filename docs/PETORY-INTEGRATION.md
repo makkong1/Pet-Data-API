@@ -9,13 +9,13 @@
 
 ## 1. API 요약
 
-| 엔드포인트                | 설명                            | 인증            |
-| ------------------------- | ------------------------------- | --------------- |
-| `GET /popular/{context}`  | 업종별 인기 상호 목록 (최대 20) | `X-API-Key` 일반 |
-| `GET /trends/{category}`  | 카테고리 트렌드 키워드 순위     | `X-API-Key` 일반 |
-| `GET /healthz`            | Liveness                        | 없음            |
-| `GET /readyz`             | Redis Readiness                 | 없음            |
-| `POST /collect/trigger`   | 배치 수동 실행                  | `X-API-Key` 관리자 |
+| 엔드포인트               | 설명                            | 인증               |
+| ------------------------ | ------------------------------- | ------------------ |
+| `GET /popular/{context}` | 업종별 인기 상호 목록 (최대 20) | `X-API-Key` 일반   |
+| `GET /trends/{category}` | 카테고리 트렌드 키워드 순위     | `X-API-Key` 일반   |
+| `GET /healthz`           | Liveness                        | 없음               |
+| `GET /readyz`            | Redis Readiness                 | 없음               |
+| `POST /collect/trigger`  | 배치 수동 실행                  | `X-API-Key` 관리자 |
 
 **유효 context/category**: `grooming` `hospital` `supplies` `pharmacy` `cafe` `pension` `restaurant` `boarding` `hotel`
 
@@ -81,23 +81,23 @@ grep 'ingestion-digest' app.log       # 배치 수집 결과
 
 **rid_src 해석:**
 
-| 값              | 의미                                               |
-| --------------- | -------------------------------------------------- |
+| 값                  | 의미                                                             |
+| ------------------- | ---------------------------------------------------------------- |
 | `rid_src=caller`    | Petory가 `X-Request-Id` 를 보냄 — Petory 로그와 cross-trace 가능 |
-| `rid_src=generated` | pet-data-api가 자체 생성 — 단독 추적만 가능        |
+| `rid_src=generated` | pet-data-api가 자체 생성 — 단독 추적만 가능                      |
 
 ---
 
 ## 4. 에러 응답 패턴
 
-| HTTP | 메시지                      | 원인                              | 대처                        |
-| ---- | --------------------------- | --------------------------------- | --------------------------- |
-| 401  | Missing X-API-Key header    | 헤더 누락                         | 헤더 추가                   |
-| 401  | Invalid API Key             | 평문 키 오류 또는 해시를 헤더에 넣음 | .env 평문 키 확인           |
-| 403  | Admin key required          | 일반 키로 관리자 경로 호출         | `/collect/trigger`는 관리자 키만 |
-| 404  | Unknown context/category    | 잘못된 경로 파라미터               | §1 유효값 목록 참조         |
-| 503  | popular data unavailable    | Redis 키 없음 (배치 미실행)        | 빈 배열로 fallback 후 대기  |
-| 503  | Cache unavailable           | Redis 연결 오류                   | `/readyz` 로 Redis 상태 확인 |
+| HTTP | 메시지                   | 원인                                 | 대처                             |
+| ---- | ------------------------ | ------------------------------------ | -------------------------------- |
+| 401  | Missing X-API-Key header | 헤더 누락                            | 헤더 추가                        |
+| 401  | Invalid API Key          | 평문 키 오류 또는 해시를 헤더에 넣음 | .env 평문 키 확인                |
+| 403  | Admin key required       | 일반 키로 관리자 경로 호출           | `/collect/trigger`는 관리자 키만 |
+| 404  | Unknown context/category | 잘못된 경로 파라미터                 | §1 유효값 목록 참조              |
+| 503  | popular data unavailable | Redis 키 없음 (배치 미실행)          | 빈 배열로 fallback 후 대기       |
+| 503  | Cache unavailable        | Redis 연결 오류                      | `/readyz` 로 Redis 상태 확인     |
 
 `popular` 503 수신 시 권장 처리: 인기 카드 숨김, 빈 배열 반환, 재시도 없이 다음 배치 대기.
 
@@ -107,10 +107,10 @@ grep 'ingestion-digest' app.log       # 배치 수집 결과
 
 ### 배치 스케줄
 
-| 작업          | 시각             | 설명                                               |
-| ------------- | ---------------- | -------------------------------------------------- |
-| 트렌드 수집   | 매일 18:00 (로컬) | 블로그+카페 → 형태소 분석 → Redis Sorted Set       |
-| 인기 수집     | 매일 18:10 (로컬) | 블로그+카페 → 상호명 추출·점수 → Redis JSON        |
+| 작업        | 시각              | 설명                                         |
+| ----------- | ----------------- | -------------------------------------------- |
+| 트렌드 수집 | 매일 18:00 (로컬) | 블로그+카페 → 형태소 분석 → Redis Sorted Set |
+| 인기 수집   | 매일 18:10 (로컬) | 블로그+카페 → 상호명 추출·점수 → Redis JSON  |
 
 수동 트리거 (관리자 키):
 
@@ -131,17 +131,17 @@ Content-Type: application/json
 
 ### Redis 키 TTL
 
-| Redis 키                       | TTL | 설명                                   |
-| ------------------------------ | --- | -------------------------------------- |
-| `trends:{category}:keywords`   | 24h | 카테고리별 키워드 Sorted Set           |
-| `popular:{context}`            | 25h | 인기 상호 JSON (배치 주기 24h + 여유 1h) |
+| Redis 키                     | TTL | 설명                                     |
+| ---------------------------- | --- | ---------------------------------------- |
+| `trends:{category}:keywords` | 24h | 카테고리별 키워드 Sorted Set             |
+| `popular:{context}`          | 25h | 인기 상호 JSON (배치 주기 24h + 여유 1h) |
 
 ### 알려진 데이터 품질 이슈
 
-| 증상                             | 원인                           | 상태        |
-| -------------------------------- | ------------------------------ | ----------- |
+| 증상                                | 원인                                | 상태                      |
+| ----------------------------------- | ----------------------------------- | ------------------------- |
 | `in_cache=3` (popular 항목 수 적음) | 카페 상호명 패턴 다양 → 추출률 낮음 | 배치 재실행으로 개선 예정 |
-| `'진짜'` 같은 부사가 상호명 포함 | blocklist 미등록               | 수정 예정   |
+| `'진짜'` 같은 부사가 상호명 포함    | blocklist 미등록                    | 수정 예정                 |
 
 ---
 

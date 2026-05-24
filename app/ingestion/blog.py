@@ -56,28 +56,37 @@ _CONTEXT_HINTS: dict = {
 }
 
 _SUFFIX_PATTERNS: dict = {
-    "grooming":   re.compile(r"([가-힣a-zA-Z0-9]{2,10})(?:\s+(?:애견|반려견|펫))?\s*(?:미용실|애견미용|펫미용|그루밍샵)"),
-    "hospital":   re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:동물병원|24시동물병원|애견병원)"),
-    "supplies":   re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:펫샵|용품점|애견용품점|반려동물용품점|펫스토어)"),
-    "pharmacy":   re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:동물약국|반려동물약국)"),
-    "cafe":       re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:애견카페|반려동물카페|펫카페)"),
-    "pension":    re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:반려동물펜션|애견펜션|펫펜션)"),
-    "restaurant": re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:반려동물동반식당|애견동반식당|펫프렌들리식당)"),
-    "boarding":   re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:위탁관리|호텔링센터|펫시터)"),
-    "hotel":      re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:펫호텔|반려동물호텔|애견호텔)"),
+    "grooming":   [re.compile(r"([가-힣a-zA-Z0-9]{2,10})(?:\s+(?:애견|반려견|펫))?\s*(?:미용실|애견미용|펫미용|그루밍샵)")],
+    "hospital":   [re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:동물병원|24시동물병원|애견병원)")],
+    "supplies":   [re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:펫샵|용품점|애견용품점|반려동물용품점|펫스토어)")],
+    "pharmacy":   [re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:동물약국|반려동물약국)")],
+    "cafe":       [re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:애견카페|반려동물카페|펫카페)")],
+    "pension":    [re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:반려동물펜션|애견펜션|펫펜션)")],
+    "restaurant": [re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:반려동물동반식당|애견동반식당|펫프렌들리식당)")],
+    "boarding":   [re.compile(r"([가-힣a-zA-Z0-9]{2,12})\s*(?:위탁관리|호텔링센터|펫시터)")],
+    "hotel":      [re.compile(r"([가-힣a-zA-Z0-9]{2,10})\s*(?:펫호텔|반려동물호텔|애견호텔)")],
 }
 
 _PREFIX_PATTERNS: dict = {
     # 한국어 상호명은 <상호명>+<업종> suffix 형식이 지배적.
-    # prefix 패턴(업종 키워드 뒤 캡처)은 업종 키워드 뒤에 오는
-    # 아무 단어(약품명·조사·직책)를 잡아내므로 노이즈가 많음.
+    # prefix 패턴은 업종 키워드 뒤에 오는 임의 단어를 잡으므로 노이즈 위험.
     # → hospital, pharmacy, boarding은 suffix 패턴만 사용.
-    "grooming":   re.compile(r"(?:애견|반려견|펫)\s*([가-힣a-zA-Z0-9]{2,8})\s*(?:미용실|애견미용|펫미용|그루밍샵)"),
-    "supplies":   re.compile(r"(?:펫샵|용품점)\s*([가-힣a-zA-Z0-9]{2,8})"),
-    "cafe":       re.compile(r"(?:애견카페|반려동물카페)\s*([가-힣a-zA-Z0-9]{2,8})"),
-    "pension":    re.compile(r"(?:반려동물펜션|애견펜션)\s*([가-힣a-zA-Z0-9]{2,8})"),
-    "restaurant": re.compile(r"(?:반려동물동반|애견동반)\s*([가-힣a-zA-Z0-9]{2,8})"),
-    "hotel":      re.compile(r"(?:펫호텔|반려동물호텔)\s*([가-힣a-zA-Z0-9]{2,8})"),
+    "grooming":   [re.compile(r"(?:애견|반려견|펫)\s*([가-힣a-zA-Z0-9]{2,8})\s*(?:미용실|애견미용|펫미용|그루밍샵)")],
+    "supplies":   [re.compile(r"(?:펫샵|용품점)\s*([가-힣a-zA-Z0-9]{2,8})")],
+    "cafe": [
+        re.compile(r"(?:애견카페|반려동물카페)\s*([가-힣a-zA-Z0-9]{2,12})"),
+        # "반려동물 동반 카페 [상호명]" — 실제 제목의 지배적 패턴
+        re.compile(r"반려동물\s*동반\s*카페\s+([가-힣a-zA-Z0-9]{2,12})"),
+        # "반려동물 동반 가능한 [상호명]" — 제목 말미에 상호 등장
+        re.compile(r"반려동물\s*동반\s*가능한?\s+([가-힣a-zA-Z0-9]{2,12})"),
+    ],
+    "pension":    [re.compile(r"(?:반려동물펜션|애견펜션)\s*([가-힣a-zA-Z0-9]{2,8})")],
+    "restaurant": [re.compile(r"(?:반려동물동반|애견동반)\s*([가-힣a-zA-Z0-9]{2,8})")],
+    "hotel": [
+        re.compile(r"(?:펫호텔|반려동물호텔)\s*([가-힣a-zA-Z0-9]{2,8})"),
+        # "반려동물 동반 호텔 [추천] [상호명]" — 제목에서 상호명이 뒤에 오는 패턴
+        re.compile(r"반려동물\s*동반\s*호텔\s+(?:추천\s+)?([가-힣a-zA-Z0-9]{2,12})"),
+    ],
 }
 
 _BLOCKLIST_EXACT = frozenset([
@@ -92,6 +101,8 @@ _BLOCKLIST_EXACT = frozenset([
     "일반", "심야", "야간", "실내", "대형", "신상", "근교", "야외",
     "서비스", "가격", "이용", "예약", "접종", "신종", "독채",
     "연중무휴", "가까운",
+    # 카페·숙박 수식어 (prefix 패턴 확장 후 FP 방지)
+    "베이커리", "전원주택", "오션뷰", "브런치",
     # 동작·관계·기능 명사
     "다녀온", "단골", "구매", "방문", "창업", "여행", "정보", "찾기", "주소",
     # 조사·어미
@@ -189,12 +200,12 @@ def _extract_candidates_from_text(text: str, context: str) -> set:
     hints = _CONTEXT_HINTS.get(context, ())
     if hints and not any(h in text for h in hints):
         return candidates
-    for pattern in (_SUFFIX_PATTERNS.get(context), _PREFIX_PATTERNS.get(context)):
-        if pattern:
-            for m in pattern.finditer(text):
-                name = _CANDIDATE_SANITIZE.sub("", m.group(1)).strip()
-                if _is_valid_name(name):
-                    candidates.add(name)
+    patterns = _SUFFIX_PATTERNS.get(context, []) + _PREFIX_PATTERNS.get(context, [])
+    for pattern in patterns:
+        for m in pattern.finditer(text):
+            name = _CANDIDATE_SANITIZE.sub("", m.group(1)).strip()
+            if _is_valid_name(name):
+                candidates.add(name)
     return candidates
 
 

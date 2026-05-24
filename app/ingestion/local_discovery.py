@@ -1,4 +1,5 @@
 import asyncio
+import html
 import logging
 
 from app.ingestion.blog import _TOP_N, _is_valid_name, _parse_freshness
@@ -12,7 +13,7 @@ _EPS = 1e-9
 
 _DISCOVERY_HINTS: dict[str, list[str]] = {
     "boarding": ["강아지위탁", "반려견유치원"],
-    "hotel":    ["펫호텔", "강아지호텔"],
+    "hotel":    ["펫호텔", "강아지호텔", "반려동물호텔"],
 }
 
 _VERIFY_HINT: dict[str, str] = {
@@ -35,10 +36,11 @@ _LOCAL_TITLE_SUFFIXES = [
 
 
 def _clean_local_title(raw: str) -> str:
-    name = raw
+    name = html.unescape(raw)
     for suf in _LOCAL_TITLE_SUFFIXES:
         name = name.replace(suf, "").strip()
-    return name
+    # suffix 제거 후 남는 trailing 특수문자 정리 (& , . 등)
+    return name.rstrip("&,. ")
 
 
 def _name_in_post(name: str, title: str, desc: str) -> bool:

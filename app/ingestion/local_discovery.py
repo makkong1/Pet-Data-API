@@ -34,13 +34,21 @@ _LOCAL_TITLE_SUFFIXES = [
     "위탁센터", "호텔링센터",
 ]
 
+# "더위크앤리조트 더우프앤펫호텔" → suffix 제거 후 "더위크앤리조트 더우프앤"
+# 첫 토큰이 이런 venue 단어로 끝나면 parent venue prefix로 판단해 제거
+_PARENT_VENUE_ENDINGS = ("리조트", "펜션", "파크", "단지", "빌리지")
+
 
 def _clean_local_title(raw: str) -> str:
     name = html.unescape(raw)
     for suf in _LOCAL_TITLE_SUFFIXES:
         name = name.replace(suf, "").strip()
-    # suffix 제거 후 남는 trailing 특수문자 정리 (& , . 등)
-    return name.rstrip("&,. ")
+    name = name.rstrip("&,. ")
+    # parent venue prefix 제거: "더위크앤리조트 더우프앤" → "더우프앤"
+    parts = name.split()
+    if len(parts) >= 2 and parts[0].endswith(_PARENT_VENUE_ENDINGS):
+        name = " ".join(parts[1:])
+    return name
 
 
 def _name_in_post(name: str, title: str, desc: str) -> bool:

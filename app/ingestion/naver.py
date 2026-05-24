@@ -7,6 +7,7 @@ from app.platform.core.config import settings
 _log = logging.getLogger(__name__)
 
 NAVER_BLOG_URL = "https://openapi.naver.com/v1/search/blog.json"
+NAVER_CAFE_URL = "https://openapi.naver.com/v1/search/cafearticle.json"
 NAVER_LOCAL_URL = "https://openapi.naver.com/v1/search/local.json"
 
 CATEGORY_KEYWORDS: dict[str, list[str]] = {
@@ -139,6 +140,34 @@ async def search_naver_blog(query: str, display: int = 100, sort: str = "sim") -
     ]
 
 
+async def search_naver_cafe(query: str, display: int = 100, sort: str = "sim") -> list[dict]:
+    """네이버 카페 검색 API 호출. 반환 필드를 블로그와 같은 키로 정규화한다."""
+    headers = {
+        "X-Naver-Client-Id": settings.NAVER_CLIENT_ID,
+        "X-Naver-Client-Secret": settings.NAVER_CLIENT_SECRET,
+    }
+    params = {"query": query, "display": display, "sort": sort}
+    timeout = settings.NAVER_TIMEOUT_MS // 1000
+
+    data = await _fetch_naver(NAVER_CAFE_URL, params=params, headers=headers, timeout=timeout)
+    items = data.get("items", [])
+    _log.info(
+        "naver_cafe search_ok query_preview=%r display=%s sort=%s items=%s",
+        _preview_text(query, 100), display, sort, len(items),
+    )
+    return [
+        {
+            "title":       _strip_html(i.get("title", "")),
+            "description": _strip_html(i.get("description", "")),
+            "link":        i.get("link", ""),
+            "postdate":    i.get("postdate", ""),
+            "cafe_name":   _strip_html(i.get("cafename", "")),
+            "cafe_link":   i.get("cafeurl", ""),
+        }
+        for i in items
+    ]
+
+
 async def search_naver_local(query: str, display: int = 3) -> list[dict]:
     """Naver 장소 검색 — 상호명·주소·좌표 반환."""
     headers = {
@@ -170,31 +199,41 @@ async def search_naver_local(query: str, display: int = 3) -> list[dict]:
 _NAVER_SEM_LIMIT = 4
 
 
-async def collect_category_trends(category: str) -> list[dict]:
+async def collect_category_trends(category: str) -> list:
+    """블로그·카페 양쪽을 수집해 link dedupe → list[PostRecord] 반환."""
     queries = CATEGORY_KEYWORDS.get(category, [])
     if not queries:
-        _log.warning("naver collect_category_trends category=%s: no CATEGORY_KEYWORDS (empty queries)", category)
+        _log.warning(
+            "naver collect_category_trends category=%s: no CATEGORY_KEYWORDS (empty queries)", category
+        )
         return []
 
     semaphore = asyncio.Semaphore(_NAVER_SEM_LIMIT)
 
-    async def _fetch(q: str, sort: str) -> list[dict]:
+    async def _fetch_source(source: str, q: str, sort: str) -> list:
         async with semaphore:
-            return await search_naver_blog(q, sort=sort)
+            if source == "blog":
+                items = await search_naver_blog(q, sort=sort)
+                return _blog_items_to_records(items)
+            items = await search_naver_cafe(q, sort=sort)
+            return _cafe_items_to_records(items)
 
-    tasks = [_fetch(q, sort) for q in queries for sort in ("sim", "date")]
+    tasks = [
+        _fetch_source(src, q, s)
+        for src in ("blog", "cafe")
+        for q in queries
+        for s in ("sim", "date")
+    ]
     _log.info(
-        "naver collect_category_trends start category=%r queries=%d parallel_calls=%d (sim+date) sem_limit=%d",
-        category,
-        len(queries),
-        len(tasks),
-        _NAVER_SEM_LIMIT,
+        "naver collect_category_trends start category=%r queries=%d parallel_calls=%d "
+        "(blog+cafe×sim+date) sem_limit=%d",
+        category, len(queries), len(tasks), _NAVER_SEM_LIMIT,
     )
 
     batches = await asyncio.gather(*tasks, return_exceptions=True)
 
     seen: set[str] = set()
-    results: list[dict] = []
+    results: list = []
     dup_skip = raw_rows = 0
     errs: list[str] = []
     for batch in batches:
@@ -207,25 +246,20 @@ async def collect_category_trends(category: str) -> list[dict]:
             )
             continue
         raw_rows += len(batch)
-        for item in batch:
-            link = item.get("link", "")
-            if not link:
+        for r in batch:
+            if not r.link:
                 continue
-            if link in seen:
+            if r.link in seen:
                 dup_skip += 1
                 continue
-            seen.add(link)
-            results.append(item)
+            seen.add(r.link)
+            results.append(r)
 
     _log.info(
-        "naver collect_category_trends done category=%r unique_posts=%d raw_rows_seen=%d duplicate_links_skip=%d "
-        "parallel_ok=%d parallel_err=%d",
-        category,
-        len(results),
-        raw_rows,
-        dup_skip,
-        len(tasks) - len(errs),
-        len(errs),
+        "naver collect_category_trends done category=%r unique_posts=%d raw_rows=%d "
+        "dup_skip=%d parallel_ok=%d parallel_err=%d",
+        category, len(results), raw_rows, dup_skip,
+        len(tasks) - len(errs), len(errs),
     )
     if errs:
         _log.warning(
@@ -235,3 +269,39 @@ async def collect_category_trends(category: str) -> list[dict]:
         )
 
     return results
+
+
+def _blog_items_to_records(items: list[dict]) -> list:
+    """search_naver_blog() 결과 → list[PostRecord]"""
+    from app.ingestion.record import PostRecord
+    return [
+        PostRecord(
+            title=i["title"],
+            description=i["description"],
+            link=i["link"],
+            postdate=i["postdate"],
+            source="naver_blog",
+            author_name=i.get("blogger_name", ""),
+            author_link=i.get("blogger_link", ""),
+        )
+        for i in items
+        if i.get("link")
+    ]
+
+
+def _cafe_items_to_records(items: list[dict]) -> list:
+    """search_naver_cafe() 결과 → list[PostRecord]"""
+    from app.ingestion.record import PostRecord
+    return [
+        PostRecord(
+            title=i["title"],
+            description=i["description"],
+            link=i["link"],
+            postdate=i["postdate"],
+            source="naver_cafe",
+            author_name=i.get("cafe_name", ""),
+            author_link=i.get("cafe_link", ""),
+        )
+        for i in items
+        if i.get("link")
+    ]

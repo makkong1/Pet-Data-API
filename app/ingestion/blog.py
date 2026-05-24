@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timezone
 from typing import Optional
 
-from app.ingestion.naver import CATEGORY_KEYWORDS, search_naver_blog
+from app.ingestion.naver import CATEGORY_KEYWORDS, search_naver_blog, search_naver_cafe
 from app.platform.cache.redis import get_redis
 
 _log = logging.getLogger(__name__)
@@ -254,11 +254,15 @@ async def extract_popular_names(context: str) -> list:
 
     all_items: list = []
     for query in queries:
-        try:
-            items = await search_naver_blog(query, display=100, sort="sim")
-            all_items.extend(items)
-        except Exception as exc:
-            _log.warning("blog extract failed context=%s query=%r err=%s", normalized, query, exc)
+        for search_fn in (search_naver_blog, search_naver_cafe):
+            try:
+                items = await search_fn(query, display=100, sort="sim")
+                all_items.extend(items)
+            except Exception as exc:
+                _log.warning(
+                    "blog extract failed context=%s query=%r source=%s err=%s",
+                    normalized, query, search_fn.__name__, exc,
+                )
 
     # 전역 link dedupe
     seen_links: set = set()

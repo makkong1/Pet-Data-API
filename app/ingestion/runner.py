@@ -1,10 +1,12 @@
 import logging
+from datetime import datetime, timezone
 
 from app.ingestion.blog import collect_popular_for_context, save_popular
 from app.ingestion.location import enrich_with_location
 from app.ingestion.naver import CATEGORY_KEYWORDS, collect_category_trends
 from app.ingestion.analyzer.trend import aggregate_keywords
 from app.platform.cache.redis import save_trend
+from app.platform.store.sqlite import init_db, save_posts
 from app.platform import ingestion_digest as idlog
 
 _log = logging.getLogger(__name__)
@@ -23,11 +25,23 @@ _POPULAR_CONTEXTS = [
 
 
 async def run_trend_collection() -> list[dict]:
+    await init_db()
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    collected_at = datetime.now(timezone.utc).isoformat()
+
     results = []
     ok = failed = skipped = 0
     for category in CATEGORY_KEYWORDS:
         try:
             items = await collect_category_trends(category)
+            await save_posts(
+                items,
+                run_id=run_id,
+                pipeline="trends",
+                category=category,
+                query=category,
+                collected_at=collected_at,
+            )
             counts = aggregate_keywords(items)
             if not counts:
                 idlog.log_trend_skipped(

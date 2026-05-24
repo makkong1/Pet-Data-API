@@ -2,9 +2,10 @@ from collections import Counter
 from app.ingestion.analyzer.morpheme import extract_nouns
 
 
-def aggregate_keywords(items: list[dict]) -> Counter:
+def aggregate_keywords(items: list) -> Counter:
+    """list[PostRecord] → 키워드 빈도 Counter."""
     counter: Counter = Counter()
-    for item in items:
-        text = f"{item.get('title', '')} {item.get('description', '')}"
+    for r in items:
+        text = f"{r.title} {r.description}"
         counter.update(extract_nouns(text))
     return counter

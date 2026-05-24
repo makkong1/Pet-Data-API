@@ -8,6 +8,12 @@
 
 ---
 
+운영 시 로그 grep 참고:
+
+- **`pet_data_api.petory_compat`** — `[petory-compat]` … `GET /trends`,`/popular` Redis 읽기(inbound/outbound) + **`POST /collect/trigger` 트리거 시점**(inbound, 그리고 배경예약/`wait=true` 완료 시 outbound).
+- **`pet_data_api.ingestion_digest`** — `[ingestion-digest]` … 스케줄/수집 트리거로 **Redis 에 쓰기 직후** 카테고리별 블로그 건수·용어 수·미리보기, 인기 목록 요약·`batch_done`.
+- **출력이 안 보이면**: 앱 시작 시 `app.*` 와 `pet_data_api.*` 에 **stderr 스트림 핸들러**를 붙이도록 설정됨 (`app/main.py` `_configure_logging`). 환경변수 **`LOG_LEVEL`**(기본 `INFO`), 선택 **`LOG_FMT`**.
+
 ## 1. 의존성 설치 · 기동
 
 ```bash
@@ -38,6 +44,12 @@ Swagger: `http://localhost:8000/docs`
 
 ```bash
 python3 -c "import secrets,hashlib; k=secrets.token_hex(32); print('KEY=', k); print('HASH=', hashlib.sha256(k.encode()).hexdigest())"
+```
+
+이미 평문 키가 있을 때, `.env` 의 `ADMIN_API_KEY_HASH`(또는 `API_KEY_HASH`)와 같은지 확인하려면:
+
+```bash
+printf '%s' '여기-평문-관리자-키' | python3 scripts/sha256_key.py
 ```
 
 일반 호출과 관리 호출 모두 헤더 이름은 **`X-API-Key`** 입니다. 관리 라우터는 평문 키가 `ADMIN_API_KEY_HASH` 에 대응할 때만 통과합니다.
@@ -87,9 +99,33 @@ curl -s -X POST http://localhost:8000/collect/trigger \
   -H "X-API-Key: $ADMIN_KEY" \
   -H "Content-Type: application/json" \
   -d '{"targets":["trends","popular"]}'
+
+# `uvicorn --reload` 때문에 백그라운드가 끊기는 경우: 동일 요청에서 끝까지 기다림 (HTTP 200, 본문에 results)
+curl -s -X POST 'http://localhost:8000/collect/trigger?wait=true' \
+  -H "X-API-Key: $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"targets":["popular"]}'
 ```
 
-응답에 `collection started` 가 오면 배치가 백그라운드에서 실행됩니다. 테스트 환경에서 FastAPI/`BackgroundTasks` 동작 방식을 유의하세요.
+응답 JSON의 `request_id`(또는 응답 헤더 `X-Request-Id`)와 터미널 로그의 `[request_id]` 를 맞춰 보면, 트리거 직후 `background ... START/DONE` 흐름을 추적하기 쉽습니다.
+
+기본(`wait=false`)은 **즉시 202**이고 배경 작업은 **응답 본문을 보낸 뒤** 실행됩니다(Starlette 규격). `wait=true` 는 **같은 HTTP 요청이 끝날 때까지** 배치를 실행하므로, 로컬에서 파일 저장으로 워커가 재시작되면 안 되게 할 때 안전합니다.
+
+`401` 에 `looks like SHA-256 hex … plaintext …` 메시지가 오면 **`X-API-Key` 에 .env의 해시(64자)`를 넣은 것입니다. 평문 키만 넣으세요.
+
+---
+
+## 4.1 수동 수집이 “안 된다고” 느껴질 때
+
+| 증상 | 점검 |
+|------|------|
+| **부팅 직후** `Startup: Redis ping FAILED` | `REDIS_URL` 과 로컬 Redis(`requirepass`, 포트 등) 불일치. 이 상태면 트렌드/인기/수집 **쓰기 전부 실패**합니다. |
+| **부팅 직후** `ADMIN_API_KEY_HASH must be exactly 64 hex` | `.env` 해시 줄에 공백·주석 침범 또는 비 hex 문자 포함. 수정 후 재기동. |
+| **422**, `json_invalid` | 바디 문자열 깨짐(예 마지막 `}` 없음). 한 줄: `{\"targets\":[\"trends\"]}` 검증 권장. |
+| **401**, `Missing X-API-Key header` | Swagger 에서 해당 엔드포인트 **Parameters 의 `X-API-Key` 칸 비움**(또는 curl 에 `-H` 누락). **관리 라우터는 평문 관리자 키** 필요. |
+| **401**, `Invalid API Key` / **403**, `Admin key required` | 키는 넣었으나 평문이 해시와 안 맞음, 또는 일반 키로 관리 라우터 호출. |
+| **422**, body `targets` 검증 등 | 헤더는 통과했는데 **`targets` 에 `popular`/`trends` 외 문자열**(또는 JSON 형식 깨짐). |
+| **202** 인데 데이터가 안 바뀜 | `GET /readyz` 의 Redis 상태. 네이버 API 실패·집계 비어 스킵이면 카테고리별로 `skipped`/`failed` 가 될 수 있음 — 터미널 `INFO` 또는 `[ingestion-digest]` 로그 확인. |
 
 ---
 

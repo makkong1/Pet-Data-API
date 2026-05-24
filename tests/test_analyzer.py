@@ -23,9 +23,12 @@ def test_extract_nouns_filters_single_char():
 
 
 def test_aggregate_keywords_counts_frequency():
+    from app.ingestion.record import PostRecord
     items = [
-        {"title": "오리젠 간식 후기", "description": "오리젠 추천"},
-        {"title": "로얄캐닌 사료", "description": "오리젠 비교"},
+        PostRecord(title="오리젠 간식 후기", description="오리젠 추천",
+                   link="http://a", postdate="20260101", source="naver_blog"),
+        PostRecord(title="로얄캐닌 사료", description="오리젠 비교",
+                   link="http://b", postdate="20260101", source="naver_blog"),
     ]
     counter = aggregate_keywords(items)
     assert isinstance(counter, Counter)

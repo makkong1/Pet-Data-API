@@ -1,6 +1,6 @@
 # pet-data-api 아키텍처
 
-> 2026-05-24 기준. 현재 레포의 **실제 역할**과 Petory 연동 방향을 함께 설명한다.
+> 2026-05-25 기준. 현재 레포의 **실제 역할**과 Petory 연동 방향을 함께 설명한다.
 
 ## 1. 한 줄 정의
 
@@ -127,7 +127,8 @@ flowchart LR
 
 1. `GET /trends/{category}` -> Redis Sorted Set 조회
 2. `GET /popular/{context}` -> Redis JSON 조회
-3. 키가 없으면 503
+3. `GET /facilities` -> `popular:*` Redis 키 전체 스캔, address 필터링, cursor 기반 페이징
+4. 키가 없으면 503
 
 ---
 
@@ -295,11 +296,7 @@ GROUP BY category3
 ORDER BY COUNT(*) DESC;
 ```
 
-특히 `boarding/hotel`은 다음 전제로 본다.
-
-- 거의 없거나 0건일 가능성이 높다
-- `FacilitySyncService`는 현재 고장 상태다
-- 따라서 fallback 유지 또는 별도 적재 파이프 보강 중 하나를 먼저 정해야 한다
+> **boarding/hotel**: 2026-05-25 기준 `GET /facilities` 구현 및 FacilitySyncService 연동으로 87개 시설 DB 적재 완료. Phase 0 전제 불필요 — 이미 Track A 전환 완료.
 
 ### Phase 1. Track A 전환
 
@@ -340,7 +337,7 @@ ORDER BY COUNT(*) DESC;
 - [`README.md`](README.md)
 - [`DATA-AND-API-FLOW.md`](DATA-AND-API-FLOW.md)
 - [`codex-petory-nearby-recommendation-integration.md`](codex-petory-nearby-recommendation-integration.md)
-- [`/Users/maknkkong/project/pet-data-api/docs/PETORY-INTEGRATION.md`](/Users/maknkkong/project/pet-data-api/docs/PETORY-INTEGRATION.md)
+- [`PETORY-INTEGRATION.md`](PETORY-INTEGRATION.md)
 
 이 문서의 요지는 하나다.
 

@@ -1,7 +1,7 @@
 # Petory ↔ pet-data-api 연동 가이드
 
 > 대상: Petory(Java/Spring) 백엔드 — `PetDataApiClient.java`  
-> pet-data-api는 **Redis에 캐시된 트렌드 키워드·인기 상호만** 제공합니다. PostgreSQL·추천·이벤트 콜백 없음.
+> pet-data-api는 **Redis에 캐시된 트렌드 키워드·인기 상호 및 시설 목록**을 제공합니다. PostgreSQL·추천·이벤트 콜백 없음.
 
 짝 문서: [`USAGE.md`](USAGE.md) (curl·환경변수), [`V3-CHANGES.md`](V3-CHANGES.md) (변경 타임라인)
 

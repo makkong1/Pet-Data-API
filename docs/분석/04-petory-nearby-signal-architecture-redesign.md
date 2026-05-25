@@ -135,13 +135,20 @@ score 재계산: 매일 00:00 배치 — `0.5 × rating × log10(reviewCount+1) 
 "hospital" → "동물병원"
 ```
 
-`FacilitySyncService.categoryLabel()` (DB 저장용):
+`FacilitySyncService.categoryLabel()` (DB 저장용) — **수정 완료**:
 ```java
-"grooming" → "동물미용"
-"hospital" → "동물병원"
+"grooming"   → "미용"
+"hospital"   → "동물병원"
+"pharmacy"   → "동물약국"
+"cafe"       → "카페"
+"restaurant" → "식당"
+"pension"    → "펜션"
+"boarding"   → "위탁관리"
+"hotel"      → "호텔"
+"supplies"   → "반려동물용품"
 ```
 
-grooming이 DB에 "동물미용"으로 저장됐는데 검색 필터는 "미용"으로 조회 → category WHERE miss 가능.
+FacilitySyncService.categoryLabel() 수정 완료 — CONTEXT_TO_CATEGORY 와 전 context 정합성 확보.
 
 ---
 
@@ -330,4 +337,4 @@ regex `_SUFFIX_PATTERNS` + blocklist 190개 → 단계적 제거.
 | ✅ 구현됨 | `GET /facilities` — cursor 기반 페이징, address 필터, name+address 중복제거 |
 | ⏳ 다음 단계 | boarding/hotel PETORY_OWNED_CONTEXTS 편입 |
 | ⏳ 중간 개선 | blog.py 7개 context local_discovery 패턴 전환 |
-| ⚠️ 정합성 | category 문자열 매핑 두 곳 통일 필요 |
+| ✅ 구현됨 | `FacilitySyncService.categoryLabel()` 9개 context 한국어 통일 |

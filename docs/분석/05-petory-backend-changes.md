@@ -150,9 +150,11 @@ locationServiceRepository.existsByNameAndNearLocation(name, lat, lng, 50.0)
 
 ```
 ☑ pet-data-api GET /facilities 구현 완료 확인
+☑ FacilitySyncService.categoryLabel() 9개 context 한국어 라벨 수정
+   → grooming: 미용, cafe: 카페, restaurant: 식당, pension: 펜션,
+      boarding: 위탁관리, hotel: 호텔, supplies: 반려동물용품
 □ FacilitySyncService 수동 트리거 후 DB boarding/hotel 데이터 확인
-   → SELECT count(*) FROM locationservice WHERE category3 IN ('boarding', 'hotel') AND data_source = 'PET_DATA_API';
-□ CONTEXT_TO_CATEGORY grooming 값 "동물미용"으로 수정
+   → SELECT count(*) FROM locationservice WHERE category3 IN ('위탁관리', '호텔') AND data_source = 'PET_DATA_API';
 □ 주요 도시 반경 검색 테스트 (boarding/hotel context)
    → 후보 5개 이상 나오면 PETORY_OWNED_CONTEXTS 편입
 □ PETORY_OWNED_CONTEXTS에 boarding, hotel 추가

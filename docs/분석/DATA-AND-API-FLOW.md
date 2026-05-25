@@ -91,7 +91,13 @@ GET /trends/{category}?limit=N
 ```
 runner.run_popular_collection()
   └─ for context in _POPULAR_CONTEXTS           # 9개 context
-       blog.collect_popular_for_context(context)
+       # boarding/hotel: local_discovery 2단계 파이프라인
+       # 나머지 7개 context: blog.py 추출
+       if context in {"boarding", "hotel"}:
+         local_discovery.collect_popular_local_discovery(context)
+           └─ Naver Local API (후보 발견) → blog.py (언급 검증)
+       else:
+         blog.collect_popular_for_context(context)
          └─ blog.extract_popular_names(context)
               _CONTEXT_QUERIES[context] 쿼리 목록 순차 호출 (sort=sim)
               link 기준 전역 중복 제거
@@ -119,7 +125,8 @@ runner.run_popular_collection()
                   stale(freshness=0) 항목 제외
                   score 내림차순 상위 20개
          → list[dict] (name, mention_count, avg_freshness, score)
-       location.enrich_with_location(popular, context)
+       # boarding/hotel은 위치정보가 local_discovery에 포함 → enrich 스킵
+       location.enrich_with_location(popular, context)  # boarding/hotel 제외
          └─ for entry in popular:
               Naver 로컬 검색("{name} {업종힌트}", display=3) # 세마포어 3
               결과 중 상호명 포함 항목 우선, 없으면 첫 번째
@@ -190,4 +197,6 @@ GET /popular/{context}?limit=N
 | `app/platform/scheduler/jobs.py` | APScheduler 스케줄 등록 |
 | `app/serving/api/trends.py` | GET /trends/{category} |
 | `app/serving/api/popular.py` | GET /popular/{context} |
+| `app/serving/api/facilities.py` | GET /facilities (cursor 페이징, FacilitySyncService 연동) |
 | `app/serving/api/collect.py` | POST /collect/trigger |
+| `app/ingestion/local_discovery.py` | boarding/hotel Local discovery → Blog verify 2단계 |

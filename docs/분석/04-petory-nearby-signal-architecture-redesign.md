@@ -20,11 +20,13 @@ Petory `RecommendService`는 이미 "Petory DB 후보 + blog signal 보정" 패�
 
 `RecommendService.java:48`
 ```java
+// 2026-05-25 기준 — boarding/hotel 편입 완료
 private static final Set<String> PETORY_OWNED_CONTEXTS = Set.of(
-    "grooming", "hospital", "pharmacy", "cafe", "restaurant", "pension");
+    "grooming", "hospital", "pharmacy", "cafe", "restaurant", "pension",
+    "boarding", "hotel");
 ```
 
-9개 context 중 6개는 이미 `recommendWithPetoryCandidates()` 경로를 탄다:
+9개 context 중 8개는 이미 `recommendWithPetoryCandidates()` 경로를 탄다:
 
 ```
 Petory DB (반경 검색) → nearby 후보 20개
@@ -106,26 +108,24 @@ score 재계산: 매일 00:00 배치 — `0.5 × rating × log10(reviewCount+1) 
 
 ## 3. 현재 어디가 끊겨 있는가
 
-### 3.1 `GET /facilities` 미구현 — 인게스천 루프 단절
+### 3.1 `GET /facilities` 구현 완료 — 인게스천 루프 복구됨 (2026-05-25)
 
 ```
 [pet-data-api blog/local 수집] → Redis popular cache
-                                        ↑ 여기가 끊겨 있음
-[FacilitySyncService 01:00] → GET /facilities → 404 → empty
                                         ↓
-[LocationService DB 적재] → 안 됨
+[FacilitySyncService 01:00] → GET /facilities → items
+                                        ↓
+[LocationService DB 적재] → 87개 적재 완료 (2026-05-25)
 ```
 
-이 하나가 전체 "master 채우기" 루프를 막고 있다.
+`GET /facilities` 구현으로 FacilitySyncService 루프가 복구되었다. 87개 시설이 `dataSource=PET_DATA_API`로 적재 확인됨.
 
-### 3.2 boarding / hotel이 레거시 경로에 묶여 있다
+### 3.2 boarding / hotel — Track A 전환 완료 (2026-05-25)
 
-`PETORY_OWNED_CONTEXTS`에 boarding, hotel이 없으므로:
-- Petory DB에 boarding/hotel 시설이 있어도 nearby 검색을 안 함
-- pet-data-api의 blog-only 결과를 그대로 반환
-
-원인: Petory DB에 boarding/hotel 데이터가 충분히 없어서 아직 전환 못 한 것.
-해결: `GET /facilities` 구현 → FacilitySyncService가 boarding/hotel 시설을 DB에 채움 → PETORY_OWNED_CONTEXTS 편입.
+`PETORY_OWNED_CONTEXTS`에 boarding, hotel 편입 완료:
+- DB에 boarding/hotel 시설 87개 적재됨 (`dataSource=PET_DATA_API`)
+- `recommendWithPetoryCandidates()` 경로 사용 — nearby 검색 + blog signal 조합
+- 레거시 proxy(`recommendWithLegacyProxy`) 경로에서 완전 전환됨
 
 ### 3.3 category 문자열 매핑 — 두 곳에서 다르다
 
@@ -206,7 +206,7 @@ FacilitySyncService.categoryLabel() 수정 완료 — CONTEXT_TO_CATEGORY 와 �
 
 ## 5. 구현 필요 항목
 
-### 5.1 (pet-data-api) `GET /facilities` 추가 — 핵심
+### 5.1 (pet-data-api) `GET /facilities` — ✅ 구현 완료
 
 계약: `PetDataApiClient.fetchFacilitiesPage(cursor, limit)` 가 기대하는 형식
 
@@ -245,18 +245,12 @@ Response:
 
 인증: `X-API-Key` 일반 키.
 
-### 5.2 (Petory) boarding / hotel PETORY_OWNED_CONTEXTS 편입
+### 5.2 (Petory) boarding / hotel PETORY_OWNED_CONTEXTS 편입 — ✅ 완료
 
-`GET /facilities` 구현 후 FacilitySyncService가 데이터를 채운 뒤:
-
-```java
-// RecommendService.java
-private static final Set<String> PETORY_OWNED_CONTEXTS = Set.of(
-    "grooming", "hospital", "pharmacy", "cafe", "restaurant", "pension",
-    "boarding", "hotel");  // 추가
-```
-
-전환 조건: 주요 도시 기준 반경 10km 검색에서 boarding/hotel 후보가 평균 5개 이상 나와야 한다.
+2026-05-25 기준 완료:
+- `GET /facilities` 구현으로 87개 시설 DB 적재 확인
+- `PETORY_OWNED_CONTEXTS`에 boarding, hotel 추가됨
+- `recommendWithPetoryCandidates()` 경로에서 nearby + popular/trends 신호 합산 동작
 
 ### 5.3 (pet-data-api) blog.py 7개 context → local_discovery 패턴 전환
 
@@ -335,6 +329,6 @@ regex `_SUFFIX_PATTERNS` + blocklist 190개 → 단계적 제거.
 | ✅ 이미 구현됨 | FacilitySyncService: 01:00 daily pull 인프라 |
 | ✅ 이미 구현됨 | mergeNearbyCandidates(): fuzzy name 매칭 + scoring |
 | ✅ 구현됨 | `GET /facilities` — cursor 기반 페이징, address 필터, name+address 중복제거 |
-| ⏳ 다음 단계 | boarding/hotel PETORY_OWNED_CONTEXTS 편입 |
+| ✅ 완료 (2026-05-25) | boarding/hotel PETORY_OWNED_CONTEXTS 편입 — 87개 시설 DB 적재, Track A 전환 |
 | ⏳ 중간 개선 | blog.py 7개 context local_discovery 패턴 전환 |
 | ✅ 구현됨 | `FacilitySyncService.categoryLabel()` 9개 context 한국어 통일 |

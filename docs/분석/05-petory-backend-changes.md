@@ -20,23 +20,14 @@ Petory 백엔드에서 필요한 변경 사항을 정리한다.
 
 **파일:** `RecommendService.java:48`
 
-현재:
-```java
-private static final Set<String> PETORY_OWNED_CONTEXTS = Set.of(
-    "grooming", "hospital", "pharmacy", "cafe", "restaurant", "pension");
-```
-
-목표:
+2026-05-25 기준 완료:
 ```java
 private static final Set<String> PETORY_OWNED_CONTEXTS = Set.of(
     "grooming", "hospital", "pharmacy", "cafe", "restaurant", "pension",
-    "boarding", "hotel");
+    "boarding", "hotel");  // boarding, hotel 추가 완료
 ```
 
-**전환 조건 (선행 필요):**
-- pet-data-api `GET /facilities` 구현 완료
-- `FacilitySyncService` 1회 이상 실행 후 `dataSource = "PET_DATA_API"` boarding/hotel 데이터 DB에 존재
-- 주요 도시(서울, 부산, 대구 기준) 반경 10km 검색 시 boarding/hotel 후보 평균 5개 이상
+`GET /facilities` 구현 → 87개 시설 DB 적재 → boarding/hotel 편입 순서로 완료.
 
 ---
 
@@ -49,44 +40,37 @@ private static final Set<String> PETORY_OWNED_CONTEXTS = Set.of(
 
 | context | CONTEXT_TO_CATEGORY (검색 필터) | categoryLabel() (DB 저장) | match |
 |---|---|---|---|
-| grooming | `"미용"` | `"동물미용"` | ❌ |
+| grooming | `"미용"` | `"미용"` | ✅ |
 | hospital | `"동물병원"` | `"동물병원"` | ✅ |
 | pharmacy | `"동물약국"` | `"동물약국"` | ✅ |
-| cafe | `"카페"` | `"cafe"` (default) | ❌ |
-| restaurant | `"식당"` | `"restaurant"` (default) | ❌ |
-| pension | `"펜션"` | `"pension"` (default) | ❌ |
-| boarding | `"위탁관리"` | `"boarding"` (default) | ❌ |
-| hotel | `"호텔"` | `"hotel"` (default) | ❌ |
+| cafe | `"카페"` | `"카페"` | ✅ |
+| restaurant | `"식당"` | `"식당"` | ✅ |
+| pension | `"펜션"` | `"펜션"` | ✅ |
+| boarding | `"위탁관리"` | `"위탁관리"` | ✅ |
+| hotel | `"호텔"` | `"호텔"` | ✅ |
 
-**수정 방향: `FacilitySyncService.categoryLabel()` 확장** (권장)
+**2026-05-25 수정 완료.** `FacilitySyncService.categoryLabel()`이 9개 context 모두 한국어 라벨로 통일됨.
 
-CONTEXT_TO_CATEGORY는 PUBLIC 데이터 기준으로 이미 Korean 값으로 세팅돼 있다.
-PET_DATA_API 데이터 저장 쪽을 맞추는 게 더 안전하다.
-
-`FacilitySyncService.java`의 `categoryLabel()`:
+현재 코드 (`FacilitySyncService.java`):
 ```java
 private String categoryLabel(String category, String type) {
     if (StringUtils.hasText(category)) {
         return switch (category) {
-            case "grooming"   -> "미용";           // "동물미용" → "미용"
+            case "grooming"   -> "미용";
             case "hospital"   -> "동물병원";
             case "pharmacy"   -> "동물약국";
-            case "cafe"       -> "카페";           // "cafe" → "카페"
-            case "restaurant" -> "식당";           // "restaurant" → "식당"
-            case "pension"    -> "펜션";           // "pension" → "펜션"
-            case "boarding"   -> "위탁관리";       // "boarding" → "위탁관리"
-            case "hotel"      -> "호텔";           // "hotel" → "호텔"
-            case "supplies"   -> "반려동물용품";   // "supplies" → "반려동물용품"
+            case "cafe"       -> "카페";
+            case "restaurant" -> "식당";
+            case "pension"    -> "펜션";
+            case "boarding"   -> "위탁관리";
+            case "hotel"      -> "호텔";
+            case "supplies"   -> "반려동물용품";
             default -> category;
         };
     }
     return "HOSPITAL".equals(type) ? "동물병원" : "반려동물 시설";
 }
 ```
-
-> 주의: 이 수정 이전에 PET_DATA_API로 이미 적재된 데이터가 있다면
-> 기존 English category 값을 일괄 업데이트하는 마이그레이션 SQL이 필요하다.
-> `UPDATE locationservice SET category3 = '카페' WHERE category3 = 'cafe' AND data_source = 'PET_DATA_API';` 패턴으로.
 
 ---
 
@@ -153,11 +137,11 @@ locationServiceRepository.existsByNameAndNearLocation(name, lat, lng, 50.0)
 ☑ FacilitySyncService.categoryLabel() 9개 context 한국어 라벨 수정
    → grooming: 미용, cafe: 카페, restaurant: 식당, pension: 펜션,
       boarding: 위탁관리, hotel: 호텔, supplies: 반려동물용품
-□ FacilitySyncService 수동 트리거 후 DB boarding/hotel 데이터 확인
-   → SELECT count(*) FROM locationservice WHERE category3 IN ('위탁관리', '호텔') AND data_source = 'PET_DATA_API';
+☑ FacilitySyncService 수동 트리거 후 DB boarding/hotel 데이터 확인
+   → 87개 시설 적재 확인 (has_location=87, null_location=0)
 □ 주요 도시 반경 검색 테스트 (boarding/hotel context)
-   → 후보 5개 이상 나오면 PETORY_OWNED_CONTEXTS 편입
-□ PETORY_OWNED_CONTEXTS에 boarding, hotel 추가
+   → 후보 수 실측 검증 미완료
+☑ PETORY_OWNED_CONTEXTS에 boarding, hotel 추가
 □ 통합 테스트: RecommendService.recommend() boarding/hotel context로 호출
 ```
 

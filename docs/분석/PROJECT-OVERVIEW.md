@@ -29,8 +29,8 @@ PostgreSQL 행안부 공공 시설 적재·지오코딩·추천 엔진·이벤�
 
 ## 연관 문서
 
-- 흐름도: [`docs/분석/DATA-AND-API-FLOW.md`](분석/DATA-AND-API-FLOW.md)
+- 흐름도: [`docs/분석/DATA-AND-API-FLOW.md`](DATA-AND-API-FLOW.md)
 - 아키텍처: [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)
-- 실행·예시: [`docs/USAGE.md`](USAGE.md)
+- 실행·예시: 루트 `README.md` 또는 `.env.example` 참고 (USAGE.md 삭제됨)
 - Petory 쪽 클라이언트 가이드: [`docs/PETORY-INTEGRATION.md`](PETORY-INTEGRATION.md)
-- 설계 근거(SSOT): [`docs/superpowers/specs/2026-05-23-popularity-intelligence-redesign.md`](superpowers/specs/2026-05-23-popularity-intelligence-redesign.md)
+- 설계 근거(SSOT): [`docs/superpowers/specs/2026-05-23-popularity-intelligence-redesign.md`](../superpowers/specs/2026-05-23-popularity-intelligence-redesign.md)

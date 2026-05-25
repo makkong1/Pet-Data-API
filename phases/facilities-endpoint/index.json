@@ -1,0 +1,29 @@
+{
+  "task": "facilities-endpoint",
+  "description": "Petory FacilitySyncService가 호출하는 GET /facilities 엔드포인트 구현. Redis popular 캐시를 cursor 기반으로 노출해 인게스천 루프를 완성한다.",
+  "branch": "feat/facilities-endpoint",
+  "base_branch": "dev",
+  "steps": [
+    {
+      "id": "step1",
+      "title": "GET /facilities 엔드포인트 구현 + main.py 라우터 등록",
+      "file": "step1.md",
+      "status": "completed",
+      "summary": "app/serving/api/facilities.py 신규, main.py 라우터 등록"
+    },
+    {
+      "id": "step2",
+      "title": "테스트 작성 (test_facilities_api.py)",
+      "file": "step2.md",
+      "status": "completed",
+      "summary": "tests/test_facilities_api.py 6개 테스트 — 위치있는항목/address없는항목제외/빈Redis/cursor페이징/중복제거/인증 모두 통과"
+    },
+    {
+      "id": "step3",
+      "title": "커밋 + 푸시 + MD 문서 업데이트",
+      "file": "step3.md",
+      "status": "completed",
+      "summary": "feat(facilities) 커밋 + dev 푸시, 04/05 MD 문서 상태 업데이트"
+    }
+  ]
+}

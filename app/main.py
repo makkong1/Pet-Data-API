@@ -8,7 +8,6 @@ from fastapi import FastAPI
 from app.platform.cache.redis import get_redis
 from app.platform.core.config import settings
 from app.serving.api.collect import router as collect_router
-from app.serving.api.facilities import router as facilities_router
 from app.serving.api.popular import router as popular_router
 from app.serving.api.trends import router as trends_router
 from app.platform.scheduler.jobs import start_scheduler, stop_scheduler
@@ -92,7 +91,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 attach_observability(app)
-app.include_router(facilities_router)
 app.include_router(popular_router)
 app.include_router(collect_router)
 app.include_router(trends_router)

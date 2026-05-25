@@ -4,66 +4,102 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)
 
-네이버 블로그 검색으로 **카테고리별 트렌드 키워드**와 **컨텍스트별 인기 상호(Popularity)** 를 수집해 Redis에 두고, API로 제공하는 작은 FastAPI 서비스입니다. PostgreSQL·공공 API·추천(`POST /recommend`) 등은 포함하지 않습니다.
+Naver 블로그 기반 **트렌드 키워드** · **인기 시설** 데이터를 수집해 두 가지 형태로 제공합니다.
 
-- 앱 진입점: [`app/main.py`](app/main.py)
-- 라우터: [`app/serving/api/trends.py`](app/serving/api/trends.py), [`app/serving/api/popular.py`](app/serving/api/popular.py), [`app/serving/api/collect.py`](app/serving/api/collect.py)
-- 배치 수집: [`app/ingestion/runner.py`](app/ingestion/runner.py)
-- 레포의 `migrations/` SQL은 과거 레거시 스키마 참고용이며, 현재 앱 실행에 필요하지 않습니다.
+| 제공 방식 | 소비자 | 진입점 |
+|---|---|---|
+| FastAPI HTTP | Petory recommendation 도메인 | `GET /popular/{context}`, `GET /trends/{category}` |
+| Python batch CLI | Spring locationservice DB | `python cli.py popular --output <path>` |
+
+PostgreSQL 없음. 영속 상태는 Redis(서버 모드)와 CLI 출력 파일뿐입니다.
 
 ---
 
 ## Quick start
 
-프로젝트 루트에서:
+### 서버 (FastAPI)
 
 ```bash
-python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
+python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-# .env 에 NAVER_* , REDIS_URL , API 키 해시 등 설정 후 (상세는 docs/USAGE.md)
+# .env 설정 후 (아래 환경변수 참고)
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-- Swagger: `http://localhost:8000/docs`
-- Redis가 떠 있어야 `/readyz` 및 데이터 조회가 정상입니다.
+Swagger: `http://localhost:8000/docs`  
+Redis가 떠 있어야 `/readyz` 및 데이터 조회가 정상입니다.
+
+### 배치 CLI
+
+```bash
+source venv/bin/activate
+python cli.py popular --output /data/popular.json
+# 특정 컨텍스트만
+python cli.py popular --output /data/grooming.json --contexts grooming hospital
+```
+
+출력 파일: `LocationImportDto` 배열 JSON → Spring `POST /api/admin/location/import` 또는 파일 경로 설정으로 자동 import.
 
 ---
 
-## 기능 요약
+## 환경변수 (.env)
 
-1. **트렌드** — Naver 블로그 → 형태소(kiwipiepy) 집계 → Redis `trends:{category}:keywords` 등. **`GET /trends/{category}`** 로 조회.
-2. **인기 상호(Popularity)** — 컨텍스트별 블로그 텍스트에서 상호 후보 추출·집계 → Redis `popular:{context}` (JSON 배열). **`GET /popular/{context}`** 로 조회.
+```
+API_KEY_HASH=<sha256 hex>
+ADMIN_API_KEY_HASH=<sha256 hex>
+NAVER_CLIENT_ID=...
+NAVER_CLIENT_SECRET=...
+REDIS_URL=redis://localhost:6379/0
+NAVER_TIMEOUT_MS=10000
+```
+
+키 해시 생성:
+```bash
+python3 -c "import secrets,hashlib; k=secrets.token_hex(32); print(k, hashlib.sha256(k.encode()).hexdigest())"
+```
 
 ---
 
-## 스케줄 (로컬 시각)
+## API 엔드포인트
 
-[`app/platform/scheduler/jobs.py`](app/platform/scheduler/jobs.py)
+| 메서드 | 경로 | 인증 | 설명 |
+|---|---|---|---|
+| GET | `/healthz` | 없음 | Liveness |
+| GET | `/readyz` | 없음 | Redis ping |
+| GET | `/metrics` | 없음 | Prometheus |
+| GET | `/popular/{context}` | 일반/관리자 | Redis 인기 시설 목록 |
+| GET | `/trends/{category}` | 일반/관리자 | Redis 트렌드 키워드 |
+| POST | `/collect/trigger` | 관리자 | 수동 배치 실행 |
+
+컨텍스트: `grooming hospital supplies pharmacy cafe pension restaurant boarding hotel`
+
+---
+
+## 스케줄 (APScheduler, 로컬 시각)
 
 | 시각 | 작업 |
-|------|------|
-| 18:00 | `run_trend_collection` |
-| 18:10 | `run_popular_collection` |
+|---|---|
+| 18:00 | `run_trend_collection` → Redis `trends:{category}` |
+| 18:10 | `run_popular_collection` → Redis `popular:{context}` |
 
-`max_instances=1` 로 중복 실행을 막습니다. 타임존은 프로세스 로컬 시각 기준입니다.
-
----
-
-## 문서
-
-- [프로젝트 개요](docs/PROJECT-OVERVIEW.md)
-- [아키텍처](docs/ARCHITECTURE.md)
-- [데이터·API 흐름](docs/분석/DATA-AND-API-FLOW.md)
-- [실행·curl·환경변수](docs/USAGE.md)
-- [Petory 연동](docs/PETORY-INTEGRATION.md)
-- [변경 이력 (v3 및 이후)](docs/V3-CHANGES.md)
+`max_instances=1` 중복 실행 방지. Docker/클라우드 배포 시 `Asia/Seoul` 타임존 명시 필요.
 
 ---
 
 ## 테스트
 
 ```bash
-cd pet-data-api
 source venv/bin/activate
 PYTHONPATH=. pytest tests/ -v
 ```
+
+---
+
+## 문서
+
+| 문서 | 경로 |
+|---|---|
+| 아키텍처 | [`docs/분析/ARCHITECTURE.md`](docs/분析/ARCHITECTURE.md) |
+| Petory location 도메인 | [`docs/분析/PETORY-LOCATION-DOMAIN.md`](docs/분析/PETORY-LOCATION-DOMAIN.md) |
+| Petory recommendation 도메인 | [`docs/분析/PETORY-RECOMMENDATION-DOMAIN.md`](docs/분析/PETORY-RECOMMENDATION-DOMAIN.md) |
+| 코드 리뷰 이슈 | [`docs/superpowers/specs/2026-05-25-code-review-findings.md`](docs/superpowers/specs/2026-05-25-code-review-findings.md) |

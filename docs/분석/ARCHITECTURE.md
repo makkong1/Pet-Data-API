@@ -175,7 +175,7 @@ redis.get(f"popular:{context}")
 ### GET /facilities (FacilitySyncService 연동용)
 
 ```python
-# popular:* 전체 키 스캔
+# 9개 _POPULAR_CONTEXTS 고정 순회 (Redis SCAN 아님)
 for context in _POPULAR_CONTEXTS:
     entries = json.loads(redis.get(f"popular:{context}"))
     for entry in entries:
@@ -215,7 +215,7 @@ RecommendService.recommendWithPetoryCandidates()
 scoring 가중치 설계 근거:
 - `distanceScore 0.55` — 반려동물 서비스는 이동 거리가 선택의 가장 큰 요인
 - `ratingScore 0.20` — DB에 rating 데이터가 있을 때 품질 신호로 활용
-- `reviewScore 0.15` — 리뷰 수 log 스케일 (log₁₀(reviewCount+1))
+- `reviewScore 0.15` — `ln(reviewCount+1) / ln(101)` 정규화 (리뷰 약 100개 기준 1.0)
 - `popularityScore 0.10` — 블로그 mention 기반 보정 (최대 10%)
 
 ### Track B — 레거시 proxy (4개 context)
@@ -224,7 +224,10 @@ scoring 가중치 설계 근거:
 
 ```
 RecommendService.recommendWithLegacyProxy()
-  → PetDataApiClient.recommend(request) → pet-data-api로 전체 위임
+  → PetDataApiClient.recommend(request)
+      // POST /recommend는 pet-data-api에 없음
+      // PetDataApiClient가 내부에서 GET /popular + GET /trends를 직접 호출 후
+      // RecommendResponse 형태로 로컬 조립 (rule-based recommendation 문구 생성)
 ```
 
 Track B가 Track A로 전환되지 않는 이유: `LocationService` DB에 이 카테고리 시설 데이터가 없다. 용품점·사료·옷은 공공데이터 커버리지가 약하고 FacilitySyncService도 이 컨텍스트를 수집하지 않는다.
@@ -263,7 +266,7 @@ Track B가 Track A로 전환되지 않는 이유: `LocationService` DB에 이 �
 
 **Track B의 구조적 한계**
 
-supplies/snack/food/clothes는 `PetDataApiClient.recommend()`를 통해 pet-data-api에 전체를 위임하지만, pet-data-api에서 POST /recommend는 실질적으로 popularity + trend 조합만 반환한다. 시설 마스터 없이 블로그 신호만으로 추천하는 한계가 있다.
+supplies/snack/food/clothes는 `recommendWithLegacyProxy()` → `PetDataApiClient.recommend()`를 탄다. 이 메서드는 `GET /popular/{context}` + `GET /trends/{category}`를 각각 호출하여 rule-based 문구와 함께 `RecommendResponse`로 조립한다 (POST /recommend는 현재 pet-data-api에 없음). 결국 nearby 후보 없이 blog popularity 목록만 반환하는 구조로, 사용자 위치 기반 거리 정렬이 불가능하다.
 
 ### 다음 단계
 

@@ -31,8 +31,9 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ## 기능 요약
 
-1. **트렌드** — Naver 블로그 → 형태소(kiwipiepy) 집계 → Redis `trends:{category}:keywords` 등. **`GET /trends/{category}`** 로 조회.
+1. **트렌드** — Naver 블로그 → 형태소(kiwipiepy) 집계 → Redis `trends:{category}:keywords`. **`GET /trends/{category}`** 로 조회.
 2. **인기 상호(Popularity)** — 컨텍스트별 블로그 텍스트에서 상호 후보 추출·집계 → Redis `popular:{context}` (JSON 배열). **`GET /popular/{context}`** 로 조회.
+3. **시설 목록(Facilities)** — 인기 캐시 기반 address 있는 항목만 집계. Petory `FacilitySyncService` 연동용. **`GET /facilities`** (cursor/limit 파라미터).
 
 ---
 
@@ -45,18 +46,19 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 | 18:00 | `run_trend_collection` |
 | 18:10 | `run_popular_collection` |
 
-`max_instances=1` 로 중복 실행을 막습니다. 타임존은 프로세스 로컬 시각 기준입니다.
+`max_instances=1` 로 중복 실행을 막습니다. APScheduler `timezone` 미지정 — 프로세스 로컬 시각 기준이므로 Docker/클라우드 배포 시 `Asia/Seoul`을 명시해야 합니다.
 
 ---
 
 ## 문서
 
-- [프로젝트 개요](docs/PROJECT-OVERVIEW.md)
-- [아키텍처](docs/ARCHITECTURE.md)
-- [데이터·API 흐름](docs/분석/DATA-AND-API-FLOW.md)
-- [실행·curl·환경변수](docs/USAGE.md)
-- [Petory 연동](docs/PETORY-INTEGRATION.md)
-- [변경 이력 (v3 및 이후)](docs/V3-CHANGES.md)
+| 문서 | 경로 |
+|------|------|
+| 프로젝트 개요 | [`docs/분석/PROJECT-OVERVIEW.md`](docs/분석/PROJECT-OVERVIEW.md) |
+| 아키텍처 | [`docs/분석/ARCHITECTURE.md`](docs/분석/ARCHITECTURE.md) |
+| 데이터·API 흐름 | [`docs/분석/DATA-AND-API-FLOW.md`](docs/분석/DATA-AND-API-FLOW.md) |
+| Petory 연동 | [`docs/분석/PETORY-INTEGRATION.md`](docs/분석/PETORY-INTEGRATION.md) |
+| 코드 리뷰 이슈 | [`docs/superpowers/specs/2026-05-25-code-review-findings.md`](docs/superpowers/specs/2026-05-25-code-review-findings.md) |
 
 ---
 

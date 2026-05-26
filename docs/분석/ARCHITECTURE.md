@@ -49,10 +49,9 @@ pet-data-api                          Petory
 | pension | Naver blog → enrich_with_location | A |
 | boarding | local_discovery (2단계: discover → blog verify) | A |
 | hotel | local_discovery (2단계: discover → blog verify) | A |
-| supplies | Naver blog → enrich_with_location | B only (HTTP proxy — DB 병합 없음) |
+| supplies | Naver blog → enrich_with_location | A (DB candidates + popular 병합) |
 
 `boarding`, `hotel`은 `_LOCAL_DISCOVERY_CONTEXTS`로 분류되어 `enrich_with_location` 스킵.
-`supplies`는 현재 `PETORY_OWNED_CONTEXTS`에 미포함 → `recommendWithLegacyProxy()`만 호출.
 
 ---
 
@@ -247,5 +246,5 @@ pet-data-api/
 
 | 항목 | 상태 | 설명 |
 |------|------|------|
-| supplies Track A 편입 | 미완 | `PETORY_OWNED_CONTEXTS`에 추가 + DB candidates 병합 필요 |
+| supplies Track A 편입 | 완료 | `PETORY_OWNED_CONTEXTS`에 추가, `CONTEXT_TO_CATEGORY` 기존 매핑 활성화 |
 | missing items 자동 soft-delete | 미완 | `lastUpdated < 기준일` row 탐지 정책 미결정 |

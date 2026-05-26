@@ -124,7 +124,7 @@ SyncResult(total, saved, updated, skipped)
 | 새 BATCH_IMPORT row | saved++ |
 | 기존 BATCH_IMPORT row (active) | updated++, 갱신 필드 반영 |
 | 기존 BATCH_IMPORT row (soft-deleted) | updated++, isDeleted=false 복구 |
-| 기존 PUBLIC row (같은 name+address) | 건드리지 않음 (saved or updated 없음) |
+| 기존 PUBLIC row (같은 name+address) | PUBLIC row는 건드리지 않음. BATCH_IMPORT row가 없으면 새 insert로 `saved++` 가능 |
 | isValid 실패 (lat/lng null 등) | skipped++ |
 | rating·reviewCount 보존 확인 | 갱신 후 동일값 유지 |
 
@@ -135,3 +135,4 @@ SyncResult(total, saved, updated, skipped)
 - C (아키텍처 명확화), B (supplies Track A 편입) — 별도 스펙
 - PetDataApiClient dead code 정리 — 별도 작업
 - 카테고리 매핑 중복 제거 — 별도 작업
+- cross-source 중복 병합 정책 (`PUBLIC` + `BATCH_IMPORT` 동일 시설 통합 여부) — 이번 작업 범위 밖

@@ -19,10 +19,12 @@ backend/main/resources/application-dev.properties:12
 
 # pet-data-api
 cli.py  → python cli.py popular --output <path>
+
 CLAUDE.md:91  → ## 실행 섹션에 배치 CLI 명령 추가
 ```
 
 Spring `FacilitySyncScheduler` 동작:
+
 - `app.location.import.file-path` 가 비어있으면 → INFO 로그 후 스킵
 - 값이 있으면 → `LocationImportService.importFromFile(path)` 호출 → validate + dedup + DB upsert
 
@@ -30,10 +32,10 @@ Spring `FacilitySyncScheduler` 동작:
 
 ## 파일 맵
 
-| 작업 | 파일 |
-|------|------|
+| 작업 | 파일                                                       |
+| ---- | ---------------------------------------------------------- |
 | 수정 | `Petory/backend/main/resources/application-dev.properties` |
-| 수정 | `pet-data-api/CLAUDE.md` |
+| 수정 | `pet-data-api/CLAUDE.md`                                   |
 
 ---
 
@@ -52,6 +54,7 @@ Expected: 오류 없이 완료 (이미 존재해도 무시)
 ## Task 2: Spring 파일 경로 설정
 
 **Files:**
+
 - Modify: `Petory/backend/main/resources/application-dev.properties:12`
 
 - [ ] **Step 1: file-path 값 설정**
@@ -84,13 +87,14 @@ git commit -m "chore(location): file-path 설정 — Python batch 출력 경로 
 ## Task 3: CLAUDE.md 배치 CLI 실행 명령 추가
 
 **Files:**
+
 - Modify: `pet-data-api/CLAUDE.md` (## 실행 섹션)
 
 - [ ] **Step 1: 배치 CLI 항목 추가**
 
 `## 실행` 섹션의 기존 코드블록 바로 뒤에 아래 내용 추가:
 
-```markdown
+````markdown
 ### 배치 CLI (Petory DB 적재용)
 
 ```bash
@@ -104,9 +108,11 @@ PYTHONPATH=. python cli.py popular --output ~/data/pet-locations.json
 # 특정 컨텍스트만 (검증용)
 PYTHONPATH=. python cli.py popular --output ~/data/pet-locations.json --contexts grooming hospital
 ```
+````
 
 출력 파일은 Spring `FacilitySyncScheduler`(매일 01:00)가 자동으로 읽어 Petory DB에 적재한다.
-```
+
+````
 
 - [ ] **Step 2: 커밋**
 
@@ -114,7 +120,7 @@ PYTHONPATH=. python cli.py popular --output ~/data/pet-locations.json --contexts
 cd /Users/maknkkong/project/pet-data-api
 git add CLAUDE.md
 git commit -m "docs: 배치 CLI 실행 명령 추가 — ~/data/pet-locations.json 공유 경로 연결"
-```
+````
 
 ---
 
@@ -149,6 +155,7 @@ curl -s -X POST http://localhost:8080/api/admin/location/import \
 ```
 
 Expected:
+
 ```json
 {"total": N, "saved": N, "duplicate": 0, "skipped": 0}
 ```

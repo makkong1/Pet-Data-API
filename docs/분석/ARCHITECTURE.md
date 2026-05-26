@@ -2,14 +2,14 @@
 
 ## 개요
 
-Naver 블로그 기반 **트렌드 키워드** · **인기 시설** 데이터를 수집해 두 가지 형태로 제공하는 Python 서비스.
+Naver 검색 기반 **트렌드 키워드** · **인기 시설** 데이터를 수집해 두 가지 형태로 제공하는 Python 서비스.
 
 | 제공 방식 | 대상 | 설명 |
 |---|---|---|
 | FastAPI HTTP | Petory recommendation 도메인 | `GET /popular/{context}`, `GET /trends/{category}` |
 | Python batch CLI | Spring locationservice DB | `cli.py popular --output <path>` → JSON 파일 → Spring import |
 
-PostgreSQL 없음. 영속 상태는 Redis(서버 모드)와 CLI 출력 파일뿐.
+PostgreSQL 없음. HTTP 응답 데이터는 Redis에서만 읽는다. 배치 보조 영속 상태는 Redis, 트렌드 원본 포스트 SQLite(`SQLITE_PATH`), CLI 출력 파일이다.
 
 ---
 
@@ -25,6 +25,7 @@ pet-data-api/
 │   │   ├── blog.py               # 블로그 파싱
 │   │   ├── location.py           # 위치 정보 보강 (map_x/map_y → lat/lng)
 │   │   ├── local_discovery.py    # boarding/hotel 전용 수집 경로
+│   │   ├── record.py             # Naver blog/cafe 원본 레코드 모델
 │   │   ├── runner.py             # run_popular_collection / run_trend_collection
 │   │   ├── exporter.py           # CLI용: popular 결과 → LocationImportDto dict
 │   │   └── analyzer/
@@ -39,8 +40,11 @@ pet-data-api/
 │       ├── core/
 │       │   ├── config.py         # pydantic-settings (API_KEY_HASH, NAVER_*)
 │       │   └── auth.py           # require_api_key / require_admin_key
+│       ├── store/sqlite.py       # 트렌드 원본 포스트 저장(raw_posts)
 │       ├── scheduler/jobs.py     # APScheduler: 18:00 trend, 18:10 popular
 │       ├── schemas/popular.py    # PopularEntry Pydantic 모델
+│       ├── integration_trace.py  # 요청별 Redis/API 추적 로그
+│       ├── ingestion_digest.py   # 배치 저장 요약 로그
 │       └── observability.py      # Prometheus metrics, request-id
 ```
 
@@ -52,9 +56,12 @@ pet-data-api/
 
 ```
 APScheduler (매일 18:00/18:10)
-  └── run_trend_collection()  → Naver 블로그 검색 → kiwipiepy 형태소
+  └── run_trend_collection()  → Naver blog+cafe 검색(sim/date) → SQLite raw_posts
+        → kiwipiepy 형태소 집계
         → Redis ZSET  trends:{category}:keywords
-  └── run_popular_collection() → Naver 블로그 검색 → 위치 보강
+  └── run_popular_collection() → Naver blog/cafe 기반 상호 추출
+        → 일반 context는 Naver local 위치 보강
+        → boarding/hotel은 local_discovery 경로 사용
         → Redis JSON  popular:{context}
 
 Petory RecommendService
@@ -78,7 +85,7 @@ Spring FacilitySyncScheduler (매일 01:00)
         └── Spring locationservice DB upsert
 ```
 
-Redis 쓰기 없음. 두 경로는 완전히 독립적.
+Redis 쓰기 없음. CLI 경로는 HTTP 서버 Redis 캐시와 독립적이며 JSON 파일만 출력한다.
 
 ---
 
@@ -89,9 +96,9 @@ Redis 쓰기 없음. 두 경로는 완전히 독립적.
 | `X-API-Key` | `require_api_key` | `API_KEY_HASH` 또는 `ADMIN_API_KEY_HASH` 일치 |
 | `X-API-Key` | `require_admin_key` | `ADMIN_API_KEY_HASH` 만 일치 |
 
-키 검증: `hashlib.sha256(key.encode()).hexdigest()` 와 저장된 hash 비교 (평문 저장 없음).
+키 검증: `hashlib.sha256(key.strip().encode()).hexdigest()` 와 저장된 hash 비교 (평문 저장 없음).
 
-`POST /collect/trigger` 는 `require_admin_key` 만 통과.
+`POST /collect/trigger` 는 `require_admin_key` 만 통과. 일반 API 키로 관리자 경로를 호출하면 403, 헤더가 없거나 틀리면 401.
 
 ---
 
@@ -99,11 +106,13 @@ Redis 쓰기 없음. 두 경로는 완전히 독립적.
 
 | 키 패턴 | 타입 | 내용 |
 |---|---|---|
-| `popular:{context}` | string (JSON) | `List[PopularEntry]` — 인기 시설 목록 |
-| `trends:{category}:keywords` | zset | member=키워드, score=언급수 |
-| `trends:{category}:updated_at` | string | ISO8601 타임스탬프 |
+| `popular:{context}` | string (JSON, TTL 25h) | `List[PopularEntry]` — 인기 시설 목록 |
+| `trends:{category}:keywords` | zset (TTL 24h) | member=키워드, score=언급수 |
+| `trends:{category}:updated_at` | string (TTL 24h) | ISO8601 타임스탬프 |
 
 컨텍스트: `grooming hospital supplies pharmacy cafe pension restaurant boarding hotel`
+
+인기 시설 API alias: `snack`, `food`, `clothes` → `supplies`. 트렌드 카테고리는 `CATEGORY_KEYWORDS` 전체를 사용하므로 `snack`, `food`, `clothes`도 별도 카테고리로 조회 가능.
 
 ---
 
@@ -117,6 +126,7 @@ Redis 쓰기 없음. 두 경로는 완전히 독립적.
 | `NAVER_CLIENT_SECRET` | Y | Naver Open API 시크릿 |
 | `REDIS_URL` | Y | `redis://localhost:6379/0` |
 | `NAVER_TIMEOUT_MS` | N | Naver API 타임아웃 ms (기본 10000) |
+| `SQLITE_PATH` | N | 트렌드 원본 포스트 SQLite 경로 (기본 `data/raw_posts.db`) |
 
 ---
 
@@ -129,7 +139,7 @@ Redis 쓰기 없음. 두 경로는 완전히 독립적.
 | GET | `/metrics` | 없음 | Prometheus |
 | GET | `/popular/{context}` | 일반/관리자 | Redis 인기 시설 목록 |
 | GET | `/trends/{category}` | 일반/관리자 | Redis 트렌드 키워드 |
-| POST | `/collect/trigger` | 관리자 | 수동 배치 실행 |
+| POST | `/collect/trigger` | 관리자 | 수동 배치 실행. 기본 202 background, `?wait=true` 는 200 + 결과 반환 |
 
 ---
 

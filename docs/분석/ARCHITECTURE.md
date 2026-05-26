@@ -31,7 +31,9 @@ pet-data-api                          Petory
                 └─ locationservice DB upsert (BATCH_IMPORT)
 ```
 
-두 경로는 독립적으로 운영된다. 경로 A는 Redis만 읽는 HTTP 서버, 경로 B는 Redis 없이 JSON 파일만 출력하는 CLI.
+**경로 A**: Petory 추천 API(`POST /recommend`) 호출 시 실시간으로 pet-data-api에서 인기 시설·트렌드 신호를 가져와 Petory DB 시설 후보와 병합해 응답한다. Redis가 중간 버퍼 역할을 하며, pet-data-api가 죽어도 캐시 TTL(25h) 동안 서비스는 유지된다.
+
+**경로 B**: Petory locationservice DB에 시설 데이터를 직접 적재하는 배치 파이프라인이다. CLI가 Naver에서 수집한 시설 목록을 JSON 파일로 저장하면, Spring 스케줄러가 매일 새벽 1시에 해당 파일을 읽어 upsert한다. 경로 A의 "인기 신호"와는 별개로, 시설 자체의 메타데이터(이름·주소·좌표)를 DB에 채우는 역할이다.
 
 ---
 

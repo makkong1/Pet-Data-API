@@ -99,6 +99,22 @@ uvicorn app.main:app --reload
 PYTHONPATH=. pytest tests/ -v
 ```
 
+### 배치 CLI (Petory DB 적재용)
+
+```bash
+# ~/data 디렉토리 없으면 먼저 생성
+mkdir -p ~/data
+
+# 전체 컨텍스트 수집 → ~/data/pet-locations.json 출력
+source venv/bin/activate
+PYTHONPATH=. python cli.py popular --output ~/data/pet-locations.json
+
+# 특정 컨텍스트만 (검증용)
+PYTHONPATH=. python cli.py popular --output ~/data/pet-locations.json --contexts grooming hospital
+```
+
+출력 파일은 Spring `FacilitySyncScheduler`(매일 01:00)가 자동으로 읽어 Petory DB에 적재한다.
+
 ## 환경변수 (.env)
 
 `.env.example` 참고.

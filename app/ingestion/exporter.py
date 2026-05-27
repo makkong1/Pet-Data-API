@@ -77,7 +77,8 @@ async def collect_popular_for_cli(contexts: list[str]) -> list[dict]:
                 if key not in seen:
                     seen.add(key)
                     deduped.append(e)
-            dtos = [popular_dict_to_dto(e, context) for e in deduped]
+            dtos = [popular_dict_to_dto(e, context) for e in deduped
+                    if e.get("road_address") or e.get("address")]
             _log.info("exporter context=%s count=%d", context, len(dtos))
             result.extend(dtos)
         except Exception as e:

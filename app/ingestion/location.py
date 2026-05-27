@@ -52,6 +52,8 @@ async def enrich_with_location(entries: list[dict], context: str) -> list[dict]:
     for entry, loc in zip(entries, locations):
         row = dict(entry)
         if isinstance(loc, dict):
+            if loc.get("title"):
+                row["name"] = loc["title"]
             row["address"] = loc.get("address") or None
             row["road_address"] = loc.get("road_address") or None
             row["map_x"] = loc.get("map_x") or None

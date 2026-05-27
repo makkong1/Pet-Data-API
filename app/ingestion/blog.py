@@ -292,7 +292,7 @@ def _parse_freshness(postdate: Optional[str]) -> float:
         return 0.0
 
 
-def _compute_scores(aggregator: dict, context: str = "") -> list:
+def _compute_scores(aggregator: dict, context: str = "", top_n=None) -> list:
     """aggregator: {name: {"count": int, "freshness_sum": float}}"""
     min_count = _MIN_MENTION_COUNT.get(context, 2)
     entries = [
@@ -320,12 +320,12 @@ def _compute_scores(aggregator: dict, context: str = "") -> list:
          for e in scored if e["raw_score"] > _EPS],  # freshness=0인 stale 항목 제외
         key=lambda x: x["score"],
         reverse=True,
-    )[:_TOP_N]
+    )[:top_n if top_n is not None else _TOP_N]
 
 
 # ── 인기 수집 ──────────────────────────────────────────────────────────
 
-async def extract_popular_names(context: str) -> list:
+async def extract_popular_names(context: str, top_n=None) -> list:
     """context별 Naver 블로그 검색 → 상호명 집계 → 점수 정규화."""
     normalized = _normalize_context(context)
     queries = _CONTEXT_QUERIES.get(normalized, [])
@@ -365,7 +365,7 @@ async def extract_popular_names(context: str) -> list:
 
     _log.info("blog extract done context=%s unique_posts=%d candidates=%d",
               normalized, len(unique_items), len(aggregator))
-    return _compute_scores(aggregator, normalized)
+    return _compute_scores(aggregator, normalized, top_n=top_n)
 
 
 async def save_popular(context: str, results: list) -> None:
@@ -377,6 +377,6 @@ async def save_popular(context: str, results: list) -> None:
     _log.info("popular saved context=%s count=%d ttl=%d", context, len(results), POPULAR_TTL)
 
 
-async def collect_popular_for_context(context: str) -> list:
+async def collect_popular_for_context(context: str, top_n=None) -> list:
     normalized = _normalize_context(context)
-    return await extract_popular_names(normalized)
+    return await extract_popular_names(normalized, top_n=top_n)

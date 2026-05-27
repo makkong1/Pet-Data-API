@@ -65,10 +65,19 @@ async def collect_popular_for_cli(contexts: list[str]) -> list[dict]:
             if context in _LOCAL_DISCOVERY_CONTEXTS:
                 entries = await collect_popular_local_discovery(context)
             else:
-                entries = await collect_popular_for_context(context)
+                entries = await collect_popular_for_context(context, top_n=100)
                 if entries:
                     entries = await enrich_with_location(entries, context)
-            dtos = [popular_dict_to_dto(e, context) for e in entries if e.get("name")]
+            seen: set[tuple] = set()
+            deduped: list[dict] = []
+            for e in entries:
+                if not e.get("name"):
+                    continue
+                key = (e.get("name"), e.get("road_address") or e.get("address"))
+                if key not in seen:
+                    seen.add(key)
+                    deduped.append(e)
+            dtos = [popular_dict_to_dto(e, context) for e in deduped]
             _log.info("exporter context=%s count=%d", context, len(dtos))
             result.extend(dtos)
         except Exception as e:

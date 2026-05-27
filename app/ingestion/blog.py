@@ -16,9 +16,9 @@ _MIN_MENTION_COUNT: dict = {
     "hospital":   2,
     "supplies":   2,
     "pharmacy":   2,
-    "cafe":       1,
+    "cafe":       2,
     "pension":    2,
-    "restaurant": 1,
+    "restaurant": 3,
     "boarding":   2,
     "hotel":      2,
 }
@@ -162,6 +162,12 @@ _BLOCKLIST_EXACT = frozenset([
     "다니던", "와요",
     # 약품명
     "넥스가드", "스펙트라", "심피드독",
+    # supplies 노이즈 (형용사·동사·어미)
+    "초대형", "모든", "입양",
+    # restaurant 노이즈 (분위기 묘사어·장소 수식어)
+    "근데", "길목", "큰골", "차이들", "맛집까지",
+    # cafe/pension 지역 묘사어
+    "오색", "경포", "양양", "홍천", "경포몽",
 ])
 
 _BLOCKLIST_CONTAINS = frozenset([
@@ -239,8 +245,11 @@ _LOCATION_CITY = frozenset([
     "제주",
 ])
 
-# 조사·어미 마지막 글자 필터
-_GRAMMAR_ENDING = re.compile(r"(?:한|는|된|인|을|를|이|가|도|만|서|로|와|과|며|고|어|아|해|게|에|의|은|다|던)$")
+# 조사·어미 마지막 글자 필터 (단글자 어미 + 복합 어미)
+_GRAMMAR_ENDING = re.compile(
+    r"(?:인데|는데|있는데|이에요|예요|같아요|같아|이라고|이라|이고|했어요|했어|가요|거예요|거에요)$"
+    r"|(?:한|는|된|인|을|를|이|가|도|만|서|로|와|과|며|고|어|아|해|게|에|의|은|다|던)$"
+)
 _LOCATION_SUFFIX = re.compile(r"[가-힣]{1,5}(?:구|시|군|동|읍|면|로|역)$")
 _HANGUL_MIN2 = re.compile(r"[가-힣]{2,}")
 _CANDIDATE_SANITIZE = re.compile(u'[\\u0022\\u0027\\u201c\\u201d\\u2018\\u2019\\u00b7\\[\\]\\(\\)\\{\\}#@]')

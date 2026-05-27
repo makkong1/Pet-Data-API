@@ -16,9 +16,9 @@ _MIN_MENTION_COUNT: dict = {
     "hospital":   2,
     "supplies":   2,
     "pharmacy":   2,
-    "cafe":       2,
+    "cafe":       1,
     "pension":    2,
-    "restaurant": 3,
+    "restaurant": 2,
     "boarding":   2,
     "hotel":      2,
 }

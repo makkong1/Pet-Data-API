@@ -13,7 +13,7 @@ async def ingest_candidates(dtos: list[dict]) -> int:
     payload = {"candidates": dtos}
     headers = {}
     if settings.PETORY_INGEST_TOKEN:
-        headers["Authorization"] = f"Bearer {settings.PETORY_INGEST_TOKEN}"
+        headers["X-Ingest-Key"] = settings.PETORY_INGEST_TOKEN
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:

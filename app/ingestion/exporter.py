@@ -85,7 +85,6 @@ async def collect_popular_for_cli(contexts: list[str]) -> list[dict]:
             _log.error("exporter failed context=%s err=%s", context, e)
     # Petory place_candidates 적재
     if result:
-        import asyncio as _asyncio
         from app.ingestion.petory_client import ingest_candidates
         candidate_items = [
             {
@@ -99,5 +98,5 @@ async def collect_popular_for_cli(contexts: list[str]) -> list[dict]:
             }
             for d in result
         ]
-        _asyncio.run(ingest_candidates(candidate_items))
+        await ingest_candidates(candidate_items)
     return result

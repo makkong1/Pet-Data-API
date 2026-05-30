@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     NAVER_TIMEOUT_MS: int = 10_000
     SQLITE_PATH: str = "data/raw_posts.db"
+    PETORY_INGEST_URL: str = "http://localhost:8080/api/admin/place-candidates/batch-ingest"
+    PETORY_INGEST_TOKEN: str = ""
 
     model_config = SettingsConfigDict(
         env_file=_DOTENV,
